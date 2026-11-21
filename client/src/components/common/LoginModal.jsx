@@ -60,7 +60,7 @@ export const LoginModal = () => {
     try {
       const res = await sendVerificationOtp({ email, phone });
       setOtpSent(true);
-      setDemoOtp(res?.demoOtp || '123456');
+      setDemoOtp(res?.demoOtpHint || res?.demoOtp || '123456');
       setInfoMessage(res?.message || 'Verification code sent to your email & mobile phone.');
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Failed to dispatch verification OTP.');

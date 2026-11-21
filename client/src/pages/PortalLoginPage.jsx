@@ -74,7 +74,7 @@ export default function PortalLoginPage() {
     try {
       const res = await sendVerificationOtp({ email, phone });
       setOtpSent(true);
-      setDemoOtp(res?.demoOtp || '123456');
+      setDemoOtp(res?.demoOtpHint || res?.demoOtp || '123456');
       setInfoMsg(res?.message || 'Verification code sent to your email & mobile phone.');
     } catch (err) {
       setLocalError(err.response?.data?.message || err.message || 'Failed to dispatch verification OTP.');
