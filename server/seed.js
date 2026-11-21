@@ -209,7 +209,9 @@ async function seedDatabase() {
     for (const demo of DEMO_USERS) {
       const existingUser = await User.findOne({ email: demo.email });
       if (existingUser) {
-        console.log(`  ℹ️  [User Exists] ${demo.name} (${demo.role}) -> ${demo.email}`);
+        existingUser.isEmailVerified = true;
+        await existingUser.save();
+        console.log(`  ℹ️  [User Exists & Verified] ${demo.name} (${demo.role}) -> ${demo.email}`);
       } else {
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(demo.password, salt);
@@ -218,9 +220,10 @@ async function seedDatabase() {
           email: demo.email,
           passwordHash,
           role: demo.role,
-          department: demo.department
+          department: demo.department,
+          isEmailVerified: true
         });
-        console.log(`  ✅ [User Created] ${demo.name} (${demo.role}) -> ${demo.email}`);
+        console.log(`  ✅ [User Created & Verified] ${demo.name} (${demo.role}) -> ${demo.email}`);
       }
     }
 

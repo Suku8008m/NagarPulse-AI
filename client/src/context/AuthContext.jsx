@@ -60,12 +60,12 @@ export const AuthProvider = ({ children }) => {
     throw new Error(res?.message || 'Registration failed.');
   };
 
-  const sendVerificationOtp = async ({ email, phone }) => {
-    return authService.sendVerificationOtp({ email, phone });
+  const sendVerificationOtp = async ({ email, name, password }) => {
+    return authService.sendVerificationOtp({ email, name, password });
   };
 
-  const verifyOtp = async ({ email, phone, otp }) => {
-    return authService.verifyOtp({ email, phone, otp });
+  const verifyOtp = async ({ email, otp }) => {
+    return authService.verifyOtp({ email, otp });
   };
 
   const logout = async () => {

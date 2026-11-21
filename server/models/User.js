@@ -16,16 +16,15 @@ const UserSchema = new mongoose.Schema(
       lowercase: true,
       index: true
     },
-    phone: {
-      type: String,
-      trim: true,
-      default: ''
-    },
-    isVerified: {
+    isEmailVerified: {
       type: Boolean,
       default: false
     },
-    verifiedAt: {
+    otpHash: {
+      type: String,
+      default: null
+    },
+    otpExpiresAt: {
       type: Date,
       default: null
     },
@@ -63,10 +62,11 @@ UserSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.passwordHash);
 };
 
-// Exclude passwordHash from JSON transformations
+// Exclude sensitive fields from JSON transformations
 UserSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.passwordHash;
+  delete obj.otpHash;
   return obj;
 };
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -8,11 +8,11 @@ import {
   Building2,
   Lock,
   Mail,
-  Phone,
   KeyRound,
   ArrowRight,
   CheckCircle2,
-  Sparkles
+  Sparkles,
+  RotateCcw
 } from 'lucide-react';
 
 export default function PortalLoginPage() {
@@ -23,20 +23,32 @@ export default function PortalLoginPage() {
 
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [demoOtp, setDemoOtp] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState('');
 
+  // 60-second cooldown interval timer for OTP resend
+  useEffect(() => {
+    let timer;
+    if (otpSent && resendCooldown > 0) {
+      timer = setInterval(() => {
+        setResendCooldown((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [otpSent, resendCooldown]);
+
   const resetRegisterState = () => {
     setOtpSent(false);
     setOtp('');
     setDemoOtp('');
+    setResendCooldown(0);
     setInfoMsg('');
     setLocalError('');
   };
@@ -63,19 +75,30 @@ export default function PortalLoginPage() {
     }
   };
 
+  // Step 1: Send 6-digit OTP code to citizen email
   const handleSendOtp = async (e) => {
     if (e) e.preventDefault();
-    if (!email || !phone) {
-      setLocalError('Please provide both your email and a valid 10-digit mobile phone number.');
+    if (!email) {
+      setLocalError('Please provide your email address.');
       return;
     }
+    if (isRegistering && !name) {
+      setLocalError('Please provide your full name.');
+      return;
+    }
+    if (isRegistering && (!password || password.length < 6)) {
+      setLocalError('Password must be at least 6 characters long.');
+      return;
+    }
+
     setIsSubmitting(true);
     setLocalError('');
     try {
-      const res = await sendVerificationOtp({ email, phone });
+      const res = await sendVerificationOtp({ email, name, password });
       setOtpSent(true);
-      setDemoOtp(res?.demoOtpHint || res?.demoOtp || '123456');
-      setInfoMsg(res?.message || 'Verification code sent to your email & mobile phone.');
+      setResendCooldown(60);
+      setDemoOtp(res?.demoOtp || res?.demoOtpHint || '');
+      setInfoMsg(res?.message || `6-digit verification code sent to ${email}.`);
     } catch (err) {
       setLocalError(err.response?.data?.message || err.message || 'Failed to dispatch verification OTP.');
     } finally {
@@ -83,6 +106,7 @@ export default function PortalLoginPage() {
     }
   };
 
+  // Step 2 or Login submission
   const handleStandardSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -91,26 +115,28 @@ export default function PortalLoginPage() {
     try {
       if (isRegistering) {
         if (!otpSent) {
+          // If in Step 1, trigger sending the verification OTP
           await handleSendOtp();
           setIsSubmitting(false);
           return;
         }
 
-        if (!otp) {
+        if (!otp || otp.trim().length !== 6) {
           setLocalError('Please enter the 6-digit verification code.');
           setIsSubmitting(false);
           return;
         }
 
-        const verifyRes = await verifyOtp({ email, phone, otp });
+        // Verify Email OTP
+        const verifyRes = await verifyOtp({ email, otp: otp.trim() });
         const verificationToken = verifyRes?.verificationToken;
 
+        // Finalize citizen registration
         await register({
-          name,
-          email,
-          phone,
+          name: name.trim(),
+          email: email.trim(),
           password,
-          otp,
+          otp: otp.trim(),
           verificationToken
         });
         navigate(redirectTarget || '/citizen');
@@ -177,7 +203,7 @@ export default function PortalLoginPage() {
             </span>
           </div>
           <span className="text-[11px] font-mono text-slate-400">
-            Auto-authenticated with persistent MongoDB audit logging
+            Pre-verified demo accounts • Instant 1-click access without OTP friction
           </span>
         </div>
 
@@ -292,148 +318,146 @@ export default function PortalLoginPage() {
         </div>
       </div>
 
-      {/* Standard Credentials Form */}
+      {/* Clean 2-Step Citizen Email Registration & Login Form */}
       <div className="max-w-md mx-auto bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-4">
         <div className="text-center">
           <h2 className="text-sm font-bold text-slate-900">
-            {isRegistering ? 'Verified Citizen Registration' : 'Authenticate with Credentials'}
+            {isRegistering
+              ? otpSent
+                ? 'Step 2: Enter Email Verification OTP'
+                : 'Step 1: Citizen Account Details'
+              : 'Sign in to NagarPulse AI'}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             {isRegistering
-              ? 'Verify email & phone to register an authorized citizen account'
-              : 'Sign in using your assigned email and password'}
+              ? otpSent
+                ? `6-digit code sent to ${email} (valid for 10 minutes)`
+                : 'Enter your credentials to receive an Email Verification OTP'
+              : 'Sign in using your registered email and password'}
           </p>
         </div>
 
         <form onSubmit={handleStandardSubmit} className="space-y-3">
-          {isRegistering && (
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name</label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. S. Venkat Reddy"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="email"
-                required
-                disabled={isRegistering && otpSent}
-                placeholder="name@nagarpulse.in"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono disabled:opacity-75"
-              />
-            </div>
-          </div>
-
-          {isRegistering && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">Mobile Phone Number</label>
-                <span className="text-[10px] text-slate-400">10-digit mobile</span>
-              </div>
-              <div className="relative">
-                <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="tel"
-                  required
-                  disabled={otpSent}
-                  placeholder="9876543210"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono disabled:opacity-75"
-                />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
-            <div className="relative">
-              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          {/* OTP Verification Step for Registration */}
-          {isRegistering && (
-            <div className="pt-1">
-              {!otpSent ? (
-                <button
-                  type="button"
-                  disabled={isSubmitting || !email || !phone}
-                  onClick={handleSendOtp}
-                  className="w-full py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  <KeyRound className="w-3.5 h-3.5" />
-                  <span>Send 6-Digit Verification OTP</span>
-                </button>
-              ) : (
-                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2 animate-in fade-in">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-blue-900">
-                      Enter 6-Digit OTP Code
-                    </label>
-                    <button
-                      type="button"
-                      onClick={resetRegisterState}
-                      className="text-[11px] text-blue-700 hover:underline"
-                    >
-                      Edit Contact
-                    </button>
-                  </div>
-
+          {/* STEP 1: Name, Email, Password */}
+          {(!isRegistering || !otpSent) && (
+            <>
+              {isRegistering && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name</label>
                   <div className="relative">
-                    <KeyRound className="w-4 h-4 text-blue-500 absolute left-3 top-2.5" />
+                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                     <input
                       type="text"
-                      maxLength={6}
                       required
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value)}
-                      placeholder="e.g. 123456"
-                      className="w-full pl-9 pr-3 py-2 text-xs font-mono tracking-widest bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-bold text-blue-900"
+                      placeholder="e.g. S. Venkat Reddy"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                    <span>Demo OTP:</span>
-                    <button
-                      type="button"
-                      onClick={() => setOtp(demoOtp || '123456')}
-                      className="px-2 py-0.5 bg-white border border-blue-200 rounded text-blue-700 font-mono font-bold hover:bg-blue-50 transition-colors"
-                    >
-                      Auto-Fill {demoOtp || '123456'}
-                    </button>
                   </div>
                 </div>
               )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="name@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* STEP 2: 6-Digit Email OTP Input with 60-Second Cooldown Timer */}
+          {isRegistering && otpSent && (
+            <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3 animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-blue-900 block">Enter 6-Digit Email OTP</span>
+                  <span className="text-[10px] text-blue-700 font-mono">{email}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={resetRegisterState}
+                  className="text-[11px] text-blue-700 hover:underline font-semibold"
+                >
+                  Change Email
+                </button>
+              </div>
+
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-blue-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  maxLength={6}
+                  required
+                  autoFocus
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                  placeholder="123456"
+                  className="w-full pl-9 pr-3 py-2 text-xs font-mono tracking-widest bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-bold text-blue-900 text-center"
+                />
+              </div>
+
+              {/* 60-Second Cooldown Resend & Demo Pill */}
+              <div className="flex items-center justify-between text-[11px] pt-1">
+                <div>
+                  {resendCooldown > 0 ? (
+                    <span className="text-slate-400 font-mono">
+                      Resend code in <strong className="text-blue-700">{resendCooldown}s</strong>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={isSubmitting}
+                      className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 font-semibold cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Resend OTP</span>
+                    </button>
+                  )}
+                </div>
+
+                {demoOtp && (
+                  <button
+                    type="button"
+                    onClick={() => setOtp(demoOtp)}
+                    className="px-2 py-0.5 bg-white border border-blue-200 rounded text-blue-700 font-mono font-bold hover:bg-blue-50 transition-colors shadow-2xs"
+                  >
+                    Auto-Fill {demoOtp}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
+          {/* Action Button */}
           <button
             type="submit"
-            disabled={isSubmitting || (isRegistering && !otpSent)}
+            disabled={isSubmitting}
             className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {isSubmitting ? (
@@ -442,14 +466,14 @@ export default function PortalLoginPage() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
-                <span>Authenticating...</span>
+                <span>Processing...</span>
               </>
             ) : (
               <span>
                 {isRegistering
                   ? otpSent
                     ? 'Verify OTP & Complete Registration'
-                    : 'Send Code First'
+                    : 'Send Verification OTP'
                   : 'Sign In to Workspace'}
               </span>
             )}
@@ -463,9 +487,9 @@ export default function PortalLoginPage() {
               setIsRegistering(!isRegistering);
               resetRegisterState();
             }}
-            className="text-blue-700 hover:underline font-semibold"
+            className="text-blue-700 hover:underline font-semibold cursor-pointer"
           >
-            {isRegistering ? 'Existing user? Sign In' : 'New citizen? Register here'}
+            {isRegistering ? 'Existing user? Sign In' : 'New citizen? Register with Email OTP'}
           </button>
 
           <Link to="/" className="text-slate-500 hover:text-slate-800">

@@ -9,21 +9,24 @@ export const login = async ({ email, password, demoRole }) => {
   return res.data;
 };
 
-// Send 6-digit OTP verification code to email & phone
-export const sendVerificationOtp = async ({ email, phone }) => {
-  const res = await api.post('/auth/send-verification-otp', { email, phone });
+// Send 6-digit OTP verification code to citizen email
+export const sendVerificationOtp = async ({ email, name, password }) => {
+  const res = await api.post('/auth/send-verification-otp', { email, name, password });
   return res.data;
 };
 
-// Verify 6-digit OTP code
-export const verifyOtp = async ({ email, phone, otp }) => {
-  const res = await api.post('/auth/verify-otp', { email, phone, otp });
+// Verify 6-digit Email OTP code
+export const verifyOtp = async ({ email, otp }) => {
+  const res = await api.post('/auth/verify-otp', { email, otp });
+  if (res.data?.token) {
+    localStorage.setItem('nagarpulse_token', res.data.token);
+  }
   return res.data;
 };
 
-// Register citizen with verified email & phone
-export const register = async ({ name, email, phone, password, otp, verificationToken }) => {
-  const res = await api.post('/auth/register', { name, email, phone, password, otp, verificationToken });
+// Register citizen with verified email
+export const register = async ({ name, email, password, otp, verificationToken }) => {
+  const res = await api.post('/auth/register', { name, email, password, otp, verificationToken });
   if (res.data?.token) {
     localStorage.setItem('nagarpulse_token', res.data.token);
   }
@@ -48,7 +51,6 @@ export const logout = async () => {
 // Get real-time login audit ledger (Admin only)
 export const getLoginLogs = async (limit = 50) => {
   const res = await api.get('/auth/login-logs', { params: { limit } });
-  // Return an object that works whether accessed as res.data or directly
   return {
     ...res.data,
     data: res.data

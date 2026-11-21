@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const LoginLog = require('../models/LoginLog');
 const Otp = require('../models/Otp');
-const { dispatchOtp } = require('../utils/otpSender');
+const emailService = require('../services/emailService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'nagarpulse_civic_super_secret_jwt_key_2026';
 const TOKEN_EXPIRY = '7d';
@@ -18,7 +18,8 @@ const signToken = (user) => {
       email: user.email,
       name: user.name,
       role: user.role,
-      department: user.department || 'All'
+      department: user.department || 'All',
+      isEmailVerified: user.isEmailVerified !== false
     },
     JWT_SECRET,
     { expiresIn: TOKEN_EXPIRY }
@@ -27,8 +28,8 @@ const signToken = (user) => {
 
 const recordLoginLog = async ({ req, user, loginMethod }) => {
   try {
-    const ipAddress = req.ip || req.connection?.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1';
-    const userAgent = req.headers['user-agent'] || 'Unknown Browser';
+    const ipAddress = req?.ip || req?.connection?.remoteAddress || req?.headers?.['x-forwarded-for'] || '127.0.0.1';
+    const userAgent = req?.headers?.['user-agent'] || 'Unknown Browser';
 
     user.lastLoginAt = new Date();
     user.loginCount = (user.loginCount || 0) + 1;
@@ -70,6 +71,7 @@ let memoryUsers = [
     passwordHash: DEMO_PASSWORD_HASH,
     role: 'citizen',
     department: 'All',
+    isEmailVerified: true,
     lastLoginAt: null,
     loginCount: 0
   },
@@ -80,6 +82,7 @@ let memoryUsers = [
     passwordHash: DEMO_PASSWORD_HASH,
     role: 'operator',
     department: 'Roads',
+    isEmailVerified: true,
     lastLoginAt: null,
     loginCount: 0
   },
@@ -90,6 +93,7 @@ let memoryUsers = [
     passwordHash: DEMO_PASSWORD_HASH,
     role: 'admin',
     department: 'All',
+    isEmailVerified: true,
     lastLoginAt: null,
     loginCount: 0
   }
@@ -97,32 +101,25 @@ let memoryUsers = [
 
 let memoryLoginLogs = [];
 
-// Verification OTP Store (Email/Phone -> { otp, expiresAt, verified, token })
+// Verification OTP Store (Email -> { otp, otpHash, expiresAt, verified, token })
 const verificationOtps = new Map();
-
-// Helper to normalize phone numbers
-const normalizePhone = (phone) => {
-  if (!phone) return '';
-  return phone.replace(/[^0-9+]/g, '').trim();
-};
 
 /**
  * @route   POST /api/auth/send-verification-otp
- * @desc    Generate & send verification OTP to citizen email and phone before registration
+ * @desc    Generate & send 6-digit verification OTP to citizen email before registration
  */
 const sendVerificationOtp = async (req, res) => {
   try {
-    const { email, phone } = req.body;
+    const { email, name, password } = req.body;
 
-    if (!email || !phone) {
+    if (!email) {
       return res.status(400).json({
         success: false,
-        message: 'Both email and mobile phone number are required for citizen verification.'
+        message: 'Email address is required for citizen verification.'
       });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const cleanPhone = normalizePhone(phone);
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -133,99 +130,108 @@ const sendVerificationOtp = async (req, res) => {
       });
     }
 
-    // Validate phone number (at least 10 digits)
-    const digitsOnly = cleanPhone.replace(/\D/g, '');
-    if (digitsOnly.length < 10) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide a valid 10-digit mobile phone number.'
-      });
-    }
-
-    // Check if user already exists with this email or phone
+    // Check if an already verified citizen account exists with this email
     let existing = null;
     if (isDbConnected()) {
-      existing = await User.findOne({
-        $or: [{ email: normalizedEmail }, { phone: cleanPhone }]
-      });
+      existing = await User.findOne({ email: normalizedEmail });
     } else {
-      existing = memoryUsers.find(
-        (u) => u.email === normalizedEmail || (u.phone && u.phone === cleanPhone)
-      );
+      existing = memoryUsers.find((u) => u.email === normalizedEmail);
     }
 
-    if (existing) {
+    if (existing && existing.isEmailVerified) {
       return res.status(409).json({
         success: false,
-        message: 'An account with this email or phone number already exists. Please log in.'
+        message: 'An account with this email address already exists. Please sign in.'
       });
     }
 
-    // Generate 6-digit OTP code
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    // Generate 6-digit OTP code (valid for 10 minutes)
+    const rawOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpHash = await bcrypt.hash(rawOtp, 10);
 
     // 1. ALWAYS save hashed OTP and expiry in MongoDB first
-    const hashedOtp = await bcrypt.hash(otp, 10);
     if (isDbConnected()) {
       try {
-        await Otp.deleteMany({ email: normalizedEmail, phone: cleanPhone });
+        if (existing) {
+          existing.otpHash = otpHash;
+          existing.otpExpiresAt = otpExpiresAt;
+          if (name) existing.name = name.trim();
+          if (password) existing.passwordHash = await bcrypt.hash(password, 10);
+          await existing.save();
+        } else {
+          const initialPassword = password || 'Demo@123';
+          const salt = await bcrypt.genSalt(10);
+          const passwordHash = await bcrypt.hash(initialPassword, salt);
+          await User.create({
+            name: (name || 'Citizen').trim(),
+            email: normalizedEmail,
+            passwordHash,
+            role: 'citizen',
+            department: 'All',
+            isEmailVerified: false,
+            otpHash,
+            otpExpiresAt
+          });
+        }
+
+        // Also track in Otp collection
+        await Otp.deleteMany({ email: normalizedEmail });
         await Otp.create({
           email: normalizedEmail,
-          phone: cleanPhone,
-          otpHash: hashedOtp,
-          rawOtp: otp,
-          expiresAt,
+          otpHash,
+          rawOtp,
+          expiresAt: otpExpiresAt,
           verified: false
         });
       } catch (dbErr) {
-        console.warn('[OTP MongoDB Persistence Warning]:', dbErr.message);
+        console.warn('[MongoDB Save Warning]:', dbErr.message);
       }
     }
 
     // Keep in-memory cache synchronized as resilience fallback
-    const otpKey = `${normalizedEmail}_${cleanPhone}`;
-    verificationOtps.set(otpKey, {
-      otp,
+    verificationOtps.set(normalizedEmail, {
+      otp: rawOtp,
+      otpHash,
       email: normalizedEmail,
-      phone: cleanPhone,
-      expiresAt: expiresAt.getTime(),
+      expiresAt: otpExpiresAt.getTime(),
       verified: false
     });
 
-    // 2. Dispatch via HTTPS REST API (Brevo / Resend / SMS) with strict 5-second timeout
-    let deliveryResult = { success: false, error: 'Provider not configured' };
-    try {
-      deliveryResult = await dispatchOtp({ email: normalizedEmail, phone: cleanPhone, otp });
-    } catch (dispatchErr) {
-      deliveryResult = { success: false, error: dispatchErr.message };
-    }
+    // 2. Dispatch via Brevo HTTPS REST API (Port 443 with 6-second timeout)
+    const emailResult = await emailService.sendEmailOtp({
+      email: normalizedEmail,
+      otp: rawOtp,
+      name: name || 'Citizen'
+    });
 
-    const isDemoHintAllowed = process.env.NODE_ENV !== 'strict_prod' || req.body.isDemoMode || req.query.demo === 'true';
+    const allowDemo =
+      process.env.ALLOW_DEMO_OTP_FALLBACK === 'true' ||
+      process.env.NODE_ENV !== 'strict_prod' ||
+      req.body.isDemoMode;
 
-    // If external email or SMS delivery succeeded:
-    if (deliveryResult.success) {
-      console.log(`[Citizen Verification OTP] Dispatched via ${deliveryResult.providers.join(' & ')} to ${normalizedEmail}`);
+    if (emailResult.delivered) {
+      console.log(`[Citizen Verification OTP] Sent via Brevo HTTPS to ${normalizedEmail}`);
       return res.status(200).json({
         success: true,
-        otpFallbackDelivered: false,
-        message: `Verification code sent to ${normalizedEmail} and ${cleanPhone}.`,
-        ...(isDemoHintAllowed ? { demoOtp: otp, demoOtpHint: otp } : {}),
-        expiresInSeconds: 300
+        fallbackMode: false,
+        message: `6-digit verification code sent to ${normalizedEmail}.`,
+        expiresInSeconds: 600,
+        ...(allowDemo ? { demoOtp: rawOtp } : {})
       });
     }
 
-    // If the external provider timed out or lacks DLT/trial credentials in production:
+    // 3. Graceful Fallback if Brevo API fails or key missing
     console.warn(
-      `[OTP Gateway Warning] External delivery restricted on free cloud tier (${deliveryResult.error || 'Gateway offline'}). Utilizing graceful fallback.`
+      `[OTP Gateway Warning] Brevo delivery restricted or timed out (${emailResult.error}). Utilizing graceful demo fallback.`
     );
 
     return res.status(200).json({
       success: true,
-      otpFallbackDelivered: true,
-      message: 'OTP generated (SMS/SMTP gateway restricted on free cloud tier)',
-      ...(isDemoHintAllowed ? { demoOtp: otp, demoOtpHint: otp } : {}),
-      expiresInSeconds: 300
+      fallbackMode: true,
+      message: 'OTP generated (Email delivery simulated for demo/cloud fallback)',
+      ...(allowDemo ? { demoOtp: rawOtp } : {}),
+      expiresInSeconds: 600
     });
   } catch (error) {
     console.error('[sendVerificationOtp error]:', error);
@@ -238,57 +244,87 @@ const sendVerificationOtp = async (req, res) => {
 
 /**
  * @route   POST /api/auth/verify-otp
- * @desc    Verify OTP for email and phone number
+ * @desc    Verify 6-digit Email OTP and mark email as verified
  */
 const verifyOtp = async (req, res) => {
   try {
-    const { email, phone, otp } = req.body;
+    const { email, otp } = req.body;
 
-    if (!email || !phone || !otp) {
+    if (!email || !otp) {
       return res.status(400).json({
         success: false,
-        message: 'Email, phone, and 6-digit verification code are required.'
+        message: 'Email address and 6-digit verification code are required.'
       });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const cleanPhone = normalizePhone(phone);
     const enteredOtp = String(otp).trim();
     const isMasterCode = enteredOtp === '123456';
 
     let isMatched = false;
+    let verifiedUser = null;
 
-    // 1. Check MongoDB first
+    // 1. Check MongoDB User & Otp collections
     if (isDbConnected()) {
       try {
-        const dbRecord = await Otp.findOne({
-          email: normalizedEmail,
-          phone: cleanPhone,
-          expiresAt: { $gt: new Date() }
-        }).sort({ createdAt: -1 });
+        const user = await User.findOne({ email: normalizedEmail });
+        if (user) {
+          const isNotExpired = user.otpExpiresAt && new Date(user.otpExpiresAt) > new Date();
+          const isOtpValid = isMasterCode || (user.otpHash && (await bcrypt.compare(enteredOtp, user.otpHash)));
 
-        if (dbRecord) {
-          if (
-            isMasterCode ||
-            dbRecord.rawOtp === enteredOtp ||
-            (await bcrypt.compare(enteredOtp, dbRecord.otpHash))
-          ) {
+          if (isMasterCode || (isNotExpired && isOtpValid)) {
             isMatched = true;
-            dbRecord.verified = true;
-            await dbRecord.save();
+            user.isEmailVerified = true;
+            user.otpHash = null;
+            user.otpExpiresAt = null;
+            await user.save();
+            verifiedUser = user;
+          } else if (user.otpExpiresAt && new Date(user.otpExpiresAt) <= new Date()) {
+            return res.status(400).json({
+              success: false,
+              message: 'Verification code has expired. Please request a new code.'
+            });
+          }
+        }
+
+        // Also check Otp collection if User lookup did not match
+        if (!isMatched) {
+          const dbOtp = await Otp.findOne({
+            email: normalizedEmail,
+            expiresAt: { $gt: new Date() }
+          }).sort({ createdAt: -1 });
+
+          if (dbOtp) {
+            if (isMasterCode || dbOtp.rawOtp === enteredOtp || (await bcrypt.compare(enteredOtp, dbOtp.otpHash))) {
+              isMatched = true;
+              dbOtp.verified = true;
+              await dbOtp.save();
+              if (user) {
+                user.isEmailVerified = true;
+                user.otpHash = null;
+                user.otpExpiresAt = null;
+                await user.save();
+                verifiedUser = user;
+              }
+            }
           }
         }
       } catch (dbErr) {
-        console.warn('[verifyOtp DB check warning]:', dbErr.message);
+        console.warn('[verifyOtp DB error]:', dbErr.message);
       }
     }
 
-    // 2. Check in-memory fallback
-    const otpKey = `${normalizedEmail}_${cleanPhone}`;
-    const memRecord = verificationOtps.get(otpKey);
+    // 2. Check in-memory store
+    const memRecord = verificationOtps.get(normalizedEmail);
     if (!isMatched && memRecord) {
       const isNotExpired = Date.now() <= memRecord.expiresAt;
-      if (isNotExpired && (isMasterCode || String(memRecord.otp).trim() === enteredOtp)) {
+      if (!isNotExpired && !isMasterCode) {
+        return res.status(400).json({
+          success: false,
+          message: 'Verification code has expired. Please request a new code.'
+        });
+      }
+      if (isMasterCode || String(memRecord.otp).trim() === enteredOtp) {
         isMatched = true;
         memRecord.verified = true;
       }
@@ -302,13 +338,35 @@ const verifyOtp = async (req, res) => {
     if (!isMatched) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired 6-digit verification code. Please check and try again.'
+        message: 'Invalid 6-digit verification code. Please check and try again.'
       });
     }
 
-    // Mark as verified and issue verificationToken
+    // If verifiedUser was not created yet (e.g., in-memory mode), find or create in memory
+    if (!verifiedUser) {
+      verifiedUser = memoryUsers.find((u) => u.email === normalizedEmail);
+      if (!verifiedUser) {
+        verifiedUser = {
+          _id: `user_${Date.now()}`,
+          name: 'Verified Citizen',
+          email: normalizedEmail,
+          passwordHash: DEMO_PASSWORD_HASH,
+          role: 'citizen',
+          department: 'All',
+          isEmailVerified: true,
+          lastLoginAt: null,
+          loginCount: 0
+        };
+        memoryUsers.push(verifiedUser);
+      } else {
+        verifiedUser.isEmailVerified = true;
+      }
+    }
+
+    // Issue JWT tokens and mark session
+    const token = signToken(verifiedUser);
     const verificationToken = jwt.sign(
-      { email: normalizedEmail, phone: cleanPhone, verified: true },
+      { email: normalizedEmail, verified: true },
       JWT_SECRET,
       { expiresIn: '15m' }
     );
@@ -316,20 +374,30 @@ const verifyOtp = async (req, res) => {
     if (memRecord) {
       memRecord.verified = true;
       memRecord.token = verificationToken;
-    } else {
-      verificationOtps.set(otpKey, {
-        email: normalizedEmail,
-        phone: cleanPhone,
-        verified: true,
-        token: verificationToken,
-        expiresAt: Date.now() + 15 * 60 * 1000
+    }
+
+    if (typeof res.cookie === 'function') {
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: 'Email and mobile phone successfully verified!',
-      verificationToken
+      message: 'Email address successfully verified!',
+      verificationToken,
+      token,
+      user: {
+        id: verifiedUser._id ? verifiedUser._id.toString() : verifiedUser.id,
+        name: verifiedUser.name,
+        email: verifiedUser.email,
+        role: verifiedUser.role,
+        department: verifiedUser.department,
+        isEmailVerified: true
+      }
     });
   } catch (error) {
     console.error('[verifyOtp error]:', error);
@@ -342,11 +410,11 @@ const verifyOtp = async (req, res) => {
 
 /**
  * @route   POST /api/auth/register
- * @desc    Register a new citizen account with email & phone verification
+ * @desc    Register a new citizen account with email verification
  */
 const register = async (req, res) => {
   try {
-    const { name, email, phone, password, otp, verificationToken } = req.body;
+    const { name, email, password, otp, verificationToken } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -363,7 +431,6 @@ const register = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const cleanPhone = normalizePhone(phone);
 
     // Enforce OTP verification before registration
     let isVerified = false;
@@ -379,44 +446,33 @@ const register = async (req, res) => {
       }
     }
 
-    // Check MongoDB verification status
-    if (!isVerified && isDbConnected()) {
+    // Check MongoDB user verification status or OTP match
+    let existingUser = null;
+    if (isDbConnected()) {
       try {
-        const dbRecord = await Otp.findOne({
-          email: normalizedEmail,
-          phone: cleanPhone,
-          verified: true
-        }).sort({ updatedAt: -1 });
-
-        if (dbRecord) {
-          isVerified = true;
-        } else if (otp) {
-          const activeOtp = await Otp.findOne({
-            email: normalizedEmail,
-            phone: cleanPhone,
-            expiresAt: { $gt: new Date() }
-          }).sort({ createdAt: -1 });
-
-          if (activeOtp) {
+        existingUser = await User.findOne({ email: normalizedEmail });
+        if (existingUser) {
+          if (existingUser.isEmailVerified) {
+            isVerified = true;
+          } else if (otp) {
+            const enteredOtp = String(otp).trim();
+            const isNotExpired = existingUser.otpExpiresAt && new Date(existingUser.otpExpiresAt) > new Date();
             if (
-              String(otp).trim() === '123456' ||
-              activeOtp.rawOtp === String(otp).trim() ||
-              (await bcrypt.compare(String(otp).trim(), activeOtp.otpHash))
+              enteredOtp === '123456' ||
+              (isNotExpired && existingUser.otpHash && (await bcrypt.compare(enteredOtp, existingUser.otpHash)))
             ) {
               isVerified = true;
-              activeOtp.verified = true;
-              await activeOtp.save();
+              existingUser.isEmailVerified = true;
             }
           }
         }
       } catch (dbErr) {
-        console.warn('[register DB Otp check warning]:', dbErr.message);
+        console.warn('[register DB check warning]:', dbErr.message);
       }
     }
 
     if (!isVerified) {
-      const otpKey = `${normalizedEmail}_${cleanPhone}`;
-      const record = verificationOtps.get(otpKey);
+      const record = verificationOtps.get(normalizedEmail);
       if (record && record.verified) {
         isVerified = true;
       } else if (
@@ -432,89 +488,86 @@ const register = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          'Verification required: Please verify your email and phone number with the 6-digit OTP code before signing up.'
+          'Verification required: Please verify your email with the 6-digit OTP code before signing up.'
       });
     }
 
-    let existing = null;
-    if (isDbConnected()) {
-      existing = await User.findOne({
-        $or: [{ email: normalizedEmail }, ...(cleanPhone ? [{ phone: cleanPhone }] : [])]
-      });
-    } else {
-      existing = memoryUsers.find(
-        (u) => u.email === normalizedEmail || (cleanPhone && u.phone === cleanPhone)
-      );
-    }
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: 'An account with this email or phone already exists. Please log in.'
-      });
-    }
-
+    // Save or update citizen
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
     let user = null;
     if (isDbConnected()) {
-      user = await User.create({
-        name: name.trim(),
-        email: normalizedEmail,
-        phone: cleanPhone,
-        isVerified: true,
-        verifiedAt: new Date(),
-        passwordHash,
-        role: 'citizen',
-        department: 'All'
-      });
+      if (existingUser) {
+        existingUser.name = name.trim();
+        existingUser.passwordHash = passwordHash;
+        existingUser.isEmailVerified = true;
+        existingUser.otpHash = null;
+        existingUser.otpExpiresAt = null;
+        await existingUser.save();
+        user = existingUser;
+      } else {
+        user = await User.create({
+          name: name.trim(),
+          email: normalizedEmail,
+          passwordHash,
+          role: 'citizen',
+          department: 'All',
+          isEmailVerified: true
+        });
+      }
     } else {
-      user = {
-        _id: `user_${Date.now()}`,
-        name: name.trim(),
-        email: normalizedEmail,
-        phone: cleanPhone,
-        isVerified: true,
-        verifiedAt: new Date(),
-        passwordHash,
-        role: 'citizen',
-        department: 'All',
-        lastLoginAt: null,
-        loginCount: 0
-      };
-      memoryUsers.push(user);
+      user = memoryUsers.find((u) => u.email === normalizedEmail);
+      if (user) {
+        user.name = name.trim();
+        user.passwordHash = passwordHash;
+        user.isEmailVerified = true;
+      } else {
+        user = {
+          _id: `user_${Date.now()}`,
+          name: name.trim(),
+          email: normalizedEmail,
+          passwordHash,
+          role: 'citizen',
+          department: 'All',
+          isEmailVerified: true,
+          lastLoginAt: null,
+          loginCount: 0
+        };
+        memoryUsers.push(user);
+      }
     }
 
     const token = signToken(user);
-    await recordLoginLog({ req, user, loginMethod: 'credentials' });
+    await recordLoginLog({ req, user, loginMethod: 'registration' });
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    if (typeof res.cookie === 'function') {
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+    }
 
     return res.status(201).json({
       success: true,
-      message: 'Citizen account verified and registered successfully!',
+      message: 'Citizen account registered and email verified successfully!',
       token,
       user: {
-        id: user._id,
+        id: user._id ? user._id.toString() : user.id,
         name: user.name,
         email: user.email,
-        phone: user.phone,
-        isVerified: true,
         role: user.role,
-        department: user.department
+        department: user.department,
+        isEmailVerified: true
       }
     });
   } catch (error) {
     console.error('[register error]:', error);
     return res.status(500).json({
       success: false,
-      message: error.message || 'Server error during registration'
+      message: error.message || 'Registration failed.'
     });
   }
 };
@@ -567,8 +620,12 @@ const login = async (req, res) => {
             email: demoData.email,
             passwordHash,
             role: demoData.role,
-            department: demoData.department
+            department: demoData.department,
+            isEmailVerified: true
           });
+        } else if (!user.isEmailVerified) {
+          user.isEmailVerified = true;
+          await user.save();
         }
       } else {
         user = memoryUsers.find((u) => u.email === demoData.email);
@@ -580,10 +637,13 @@ const login = async (req, res) => {
             passwordHash: DEMO_PASSWORD_HASH,
             role: demoData.role,
             department: demoData.department,
+            isEmailVerified: true,
             lastLoginAt: null,
             loginCount: 0
           };
           memoryUsers.push(user);
+        } else {
+          user.isEmailVerified = true;
         }
       }
       loginMethod = 'demo-quick-login';
@@ -622,23 +682,26 @@ const login = async (req, res) => {
     const token = signToken(user);
     await recordLoginLog({ req, user, loginMethod });
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    if (typeof res.cookie === 'function') {
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+    }
 
     return res.status(200).json({
       success: true,
       message: `Welcome, ${user.name}! Authenticated as ${user.role.toUpperCase()}.`,
       token,
       user: {
-        id: user._id,
+        id: user._id ? user._id.toString() : user.id,
         name: user.name,
         email: user.email,
         role: user.role,
         department: user.department,
+        isEmailVerified: user.isEmailVerified !== false,
         lastLoginAt: user.lastLoginAt,
         loginCount: user.loginCount
       }
@@ -660,7 +723,7 @@ const getMe = async (req, res) => {
   try {
     let user = null;
     if (isDbConnected()) {
-      user = await User.findById(req.user.id).select('-passwordHash');
+      user = await User.findById(req.user.id).select('-passwordHash -otpHash');
     } else {
       user = memoryUsers.find((u) => u._id === req.user.id || u.email === req.user.email);
     }
@@ -668,35 +731,34 @@ const getMe = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User session not found.'
+        message: 'User session expired or not found.'
       });
     }
 
     return res.status(200).json({
       success: true,
       user: {
-        id: user._id,
+        id: user._id ? user._id.toString() : user.id,
         name: user.name,
         email: user.email,
         role: user.role,
         department: user.department,
-        lastLoginAt: user.lastLoginAt,
-        loginCount: user.loginCount
+        isEmailVerified: user.isEmailVerified !== false
       }
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to retrieve profile.'
+      message: error.message || 'Failed to fetch user session'
     });
   }
 };
 
 /**
  * @route   POST /api/auth/logout
- * @desc    Clear session cookie
+ * @desc    Logout user and clear auth cookie
  */
-const logout = (req, res) => {
+const logout = async (req, res) => {
   res.clearCookie('token');
   return res.status(200).json({
     success: true,
@@ -706,48 +768,25 @@ const logout = (req, res) => {
 
 /**
  * @route   GET /api/auth/login-logs
- * @desc    Get real-time audit ledger of logins (Admin portal only)
+ * @desc    Get recent login audit logs (Admin only)
  */
 const getLoginLogs = async (req, res) => {
   try {
-    let logs = [];
-    let totalLogins = 0;
-    let demoLogins = 0;
-    let credentialLogins = 0;
-    let roleBreakdown = { citizen: 0, operator: 0, admin: 0 };
+    const limit = parseInt(req.query.limit, 10) || 50;
 
+    let logs = [];
     if (isDbConnected()) {
-      logs = await LoginLog.find().sort({ timestamp: -1 }).limit(100);
-      totalLogins = await LoginLog.countDocuments();
-      demoLogins = await LoginLog.countDocuments({ loginMethod: 'demo-quick-login' });
-      credentialLogins = await LoginLog.countDocuments({ loginMethod: 'credentials' });
-      roleBreakdown = {
-        citizen: await LoginLog.countDocuments({ role: 'citizen' }),
-        operator: await LoginLog.countDocuments({ role: 'operator' }),
-        admin: await LoginLog.countDocuments({ role: 'admin' })
-      };
+      logs = await LoginLog.find()
+        .sort({ timestamp: -1 })
+        .limit(limit);
     } else {
-      logs = memoryLoginLogs.slice(0, 100);
-      totalLogins = memoryLoginLogs.length;
-      demoLogins = memoryLoginLogs.filter((l) => l.loginMethod === 'demo-quick-login').length;
-      credentialLogins = memoryLoginLogs.filter((l) => l.loginMethod === 'credentials').length;
-      roleBreakdown = {
-        citizen: memoryLoginLogs.filter((l) => l.role === 'citizen').length,
-        operator: memoryLoginLogs.filter((l) => l.role === 'operator').length,
-        admin: memoryLoginLogs.filter((l) => l.role === 'admin').length
-      };
+      logs = memoryLoginLogs.slice(0, limit);
     }
 
     return res.status(200).json({
       success: true,
       count: logs.length,
-      stats: {
-        totalLogins,
-        demoLogins,
-        credentialLogins,
-        roleBreakdown
-      },
-      logs
+      data: logs
     });
   } catch (error) {
     console.error('[getLoginLogs error]:', error);
