@@ -198,12 +198,18 @@ const sendVerificationOtp = async (req, res) => {
       verified: false
     });
 
-    // 2. Dispatch via Brevo HTTPS REST API (Port 443 with 6-second timeout)
-    const emailResult = await emailService.sendEmailOtp({
-      email: normalizedEmail,
-      otp: rawOtp,
-      name: name || 'Citizen'
-    });
+    // 2. Dispatch via Brevo HTTPS REST API (Port 443 with 7-second timeout)
+    let emailResult = { delivered: false, error: 'Not attempted' };
+    try {
+      emailResult = await (emailService.sendOtpEmail || emailService.sendEmailOtp)({
+        email: normalizedEmail,
+        otp: rawOtp,
+        name: name || 'Citizen'
+      });
+    } catch (dispatchErr) {
+      console.error('[sendOtpEmail exception]:', dispatchErr.message || dispatchErr);
+      emailResult = { delivered: false, error: dispatchErr.message };
+    }
 
     const allowDemo =
       process.env.ALLOW_DEMO_OTP_FALLBACK === 'true' ||

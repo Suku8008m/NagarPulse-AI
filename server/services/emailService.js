@@ -1,34 +1,47 @@
 /**
  * Production HTTPS Email Service for Render Cloud Deployment
  * 
- * Bypasses Render free-tier outbound SMTP port restrictions (ports 25, 465, and 587 are blocked).
- * Uses native fetch over HTTPS (port 443) to call Brevo's Transactional Email REST API.
- * Enforces a strict 6-second AbortController timeout.
+ * Dispatches transactional OTP emails over HTTPS (port 443) using Brevo's v3 REST API.
+ * Bypasses Render free-tier outbound SMTP port blocks (ports 25, 465, and 587).
+ * Enforces a strict 7-second AbortController timeout.
  */
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
-const TIMEOUT_MS = 6000;
+const TIMEOUT_MS = 7000;
 
 /**
- * Send 6-digit Email Verification OTP via Brevo HTTPS REST API
+ * Send 6-digit Email Verification OTP via Brevo HTTPS REST API (v3)
  * 
  * @param {Object} params
  * @param {string} params.email - Recipient email address
  * @param {string} params.otp - 6-digit numeric OTP code
  * @param {string} [params.name] - Recipient name
- * @returns {Promise<{ delivered: boolean, status?: number, error?: string }>}
+ * @returns {Promise<{ delivered: boolean, status?: number, messageId?: string, error?: string }>}
  */
 const sendEmailOtp = async ({ email, otp, name = 'Citizen' }) => {
-  const apiKey = process.env.BREVO_API_KEY;
+  const rawApiKey = (process.env.BREVO_API_KEY || '').trim();
 
-  if (!apiKey) {
+  if (!rawApiKey) {
     const errorMsg = 'BREVO_API_KEY is not configured in process.env';
     console.warn(`[EmailService Warning] ${errorMsg}. Activating graceful demo fallback.`);
     return { delivered: false, error: errorMsg };
   }
 
-  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'kamapallisukumar@gmail.com';
-  const senderName = process.env.BREVO_SENDER_NAME || 'NagarPulse AI';
+  // Validate that it is a v3 REST key (xkeysib-), not an SMTP password (xsmtpsib-)
+  if (rawApiKey.startsWith('xsmtpsib-')) {
+    const errorMsg =
+      'BREVO_API_KEY starts with "xsmtpsib-" which is an SMTP password, not a v3 REST API key. ' +
+      'Please generate a v3 REST API Key starting with "xkeysib-" in Brevo dashboard under SMTP & API -> API Keys.';
+    console.warn(`[EmailService Configuration Warning] ${errorMsg}`);
+    return { delivered: false, error: errorMsg };
+  }
+
+  if (!rawApiKey.startsWith('xkeysib-')) {
+    console.warn('[EmailService Warning] BREVO_API_KEY does not start with expected "xkeysib-" prefix.');
+  }
+
+  const senderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.SENDER_EMAIL || 'kamapallisukumar@gmail.com').trim();
+  const senderName = (process.env.BREVO_SENDER_NAME || process.env.SENDER_NAME || 'NagarPulse AI').trim();
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -106,7 +119,7 @@ const sendEmailOtp = async ({ email, otp, name = 'Citizen' }) => {
     const response = await fetch(BREVO_API_URL, {
       method: 'POST',
       headers: {
-        'api-key': apiKey,
+        'api-key': rawApiKey,
         'content-type': 'application/json',
         'accept': 'application/json'
       },
@@ -114,18 +127,33 @@ const sendEmailOtp = async ({ email, otp, name = 'Citizen' }) => {
       signal: controller.signal
     });
 
-    if (!response.ok) {
-      const errBody = await response.text().catch(() => '');
-      const msg = `Brevo API HTTP ${response.status}: ${errBody}`;
-      console.warn('[EmailService Brevo Error]:', msg);
-      return { delivered: false, status: response.status, error: msg };
+    const responseText = await response.text().catch(() => '');
+    let responseData = {};
+    try {
+      responseData = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      responseData = { raw: responseText };
     }
 
-    console.log(`[EmailService] OTP successfully dispatched via Brevo HTTPS REST API to ${email}`);
-    return { delivered: true, status: response.status };
+    if (!response.ok) {
+      console.error(`[Brevo API Error] status=${response.status} body=${JSON.stringify(responseData)}`);
+      return {
+        delivered: false,
+        status: response.status,
+        error: `Brevo HTTP ${response.status}: ${responseData.message || responseText}`
+      };
+    }
+
+    const messageId = responseData.messageId || 'unknown';
+    console.log(`[Brevo OTP Sent] ${email} messageId: ${messageId}`);
+    return {
+      delivered: true,
+      status: response.status,
+      messageId
+    };
   } catch (err) {
-    const errorMsg = err.name === 'AbortError' ? 'Brevo API request timed out after 6 seconds' : err.message;
-    console.warn('[EmailService Error]:', errorMsg);
+    const errorMsg = err.name === 'AbortError' ? 'Brevo API request timed out after 7 seconds' : err.message;
+    console.error(`[Brevo API Error] ${errorMsg}`);
     return { delivered: false, error: errorMsg };
   } finally {
     clearTimeout(timeoutId);
@@ -133,5 +161,6 @@ const sendEmailOtp = async ({ email, otp, name = 'Citizen' }) => {
 };
 
 module.exports = {
-  sendEmailOtp
+  sendEmailOtp,
+  sendOtpEmail: sendEmailOtp
 };

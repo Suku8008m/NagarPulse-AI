@@ -27,24 +27,40 @@ const allowedOrigins = [
   process.env.CLIENT_URL
 ].filter(Boolean);
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (Postman, curl, mobile apps, server-to-server)
+      if (!origin) return callback(null, true);
 
-    const cleanOrigin = origin.replace(/\/$/, '');
-    const isAllowed = allowedOrigins.some((o) => o.replace(/\/$/, '') === cleanOrigin) ||
-      cleanOrigin.endsWith('.vercel.app') ||
-      process.env.NODE_ENV !== 'production';
+      const cleanOrigin = origin.replace(/\/$/, "");
+      const isAllowed =
+        allowedOrigins.some((o) => o.replace(/\/$/, "") === cleanOrigin) ||
+        cleanOrigin.endsWith(".onrender.com") ||
+        cleanOrigin.endsWith(".vercel.app") ||
+        process.env.NODE_ENV !== "production";
 
-    if (isAllowed) {
-      return callback(null, true);
-    }
-    return callback(new Error(`CORS policy blocked access from origin: ${origin}`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-Access-Token', 'X-QA-Test']
-}));
+      if (isAllowed) {
+        return callback(null, true);
+      }
+
+      console.warn(`[CORS Blocked] Origin: ${origin}`);
+      return callback(
+        new Error(`CORS policy blocked access from origin: ${origin}`),
+      );
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+      "X-Access-Token",
+      "X-QA-Test",
+    ],
+  }),
+);
 
 // Body & Cookie parsers
 app.use(cookieParser());

@@ -62,7 +62,8 @@ export const LoginModal = () => {
   };
 
   // Step 1: Send 6-digit OTP code to citizen email
-  const handleSendOtp = async (e) => {
+  // Step 1: Send 6-digit OTP code to citizen email
+  const handleStep1Submit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanName = String(name || '').trim();
@@ -72,11 +73,11 @@ export const LoginModal = () => {
       setError('Please provide your email address.');
       return;
     }
-    if (isRegisterMode && !cleanName) {
+    if (!cleanName) {
       setError('Please provide your full name.');
       return;
     }
-    if (isRegisterMode && cleanPassword.length < 6) {
+    if (cleanPassword.length < 6) {
       setError('Password must be at least 6 characters long.');
       return;
     }
@@ -96,8 +97,8 @@ export const LoginModal = () => {
     }
   };
 
-  // Step 2 or Login submission
-  const handleCredentialsSubmit = async (e) => {
+  // Step 2: Verify 6-digit OTP & create citizen account
+  const handleStep2Submit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     setLoading(true);
     setError(null);
@@ -107,38 +108,56 @@ export const LoginModal = () => {
     const cleanPassword = String(password || '');
     const cleanOtp = String(otp || '').trim();
 
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setError('Please enter the 6-digit verification code.');
+      setLoading(false);
+      return;
+    }
+
     try {
-      if (isRegisterMode) {
-        if (!otpSent) {
-          // If in Step 1, trigger sending the verification OTP
-          await handleSendOtp();
-          setLoading(false);
-          return;
-        }
+      // 1. Verify Email OTP first
+      const verifyRes = await verifyOtp({ email: cleanEmail, otp: cleanOtp });
+      const verificationToken = verifyRes?.verificationToken;
 
-        if (!cleanOtp || cleanOtp.length !== 6) {
-          setError('Please enter the 6-digit verification code.');
-          setLoading(false);
-          return;
-        }
+      // 2. Finalize citizen registration
+      await register({
+        name: cleanName,
+        email: cleanEmail,
+        password: cleanPassword,
+        otp: cleanOtp,
+        verificationToken
+      });
+      closeLoginModal();
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Verification or registration failed');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        // Verify OTP first
-        const verifyRes = await verifyOtp({ email: cleanEmail, otp: cleanOtp });
-        const verificationToken = verifyRes?.verificationToken;
+  // Standard Login submit
+  const handleLoginSubmit = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    setLoading(true);
+    setError(null);
 
-        // Register citizen with verified email
-        await register({
-          name: cleanName,
-          email: cleanEmail,
-          password: cleanPassword,
-          otp: cleanOtp,
-          verificationToken
-        });
-        closeLoginModal();
-      } else {
-        await login({ email: cleanEmail, password: cleanPassword });
-        closeLoginModal();
-      }
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPassword = String(password || '');
+
+    if (!cleanEmail) {
+      setError('Please provide your email address.');
+      setLoading(false);
+      return;
+    }
+    if (!cleanPassword) {
+      setError('Please provide your password.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      await login({ email: cleanEmail, password: cleanPassword });
+      closeLoginModal();
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Authentication failed');
     } finally {
@@ -269,11 +288,100 @@ export const LoginModal = () => {
             </span>
           </div>
 
-          {/* Clean 2-Step Registration / Login Form */}
-          <form onSubmit={handleCredentialsSubmit} className="space-y-3">
-            {/* Account Details (Name, Email, Password) - always mounted for password manager & extension compatibility */}
-            <div className="space-y-3">
-              {isRegisterMode && (
+          {/* Form Area: Step 1 vs Step 2 vs Standard Login as mutually exclusive forms */}
+          {isRegisterMode ? (
+            otpSent ? (
+              /* STEP 2: 6-Digit Email OTP Form (Mutually exclusive form, NO password input, ignores autofill extensions) */
+              <form
+                onSubmit={handleStep2Submit}
+                autoComplete="off"
+                data-lpignore="true"
+                className="space-y-3"
+              >
+                <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-blue-900 block">Enter 6-Digit Email OTP</span>
+                      <span className="text-[10px] text-blue-700 font-mono">{email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetRegisterState}
+                      className="text-[11px] text-blue-700 hover:underline font-semibold cursor-pointer"
+                    >
+                      Change Details
+                    </button>
+                  </div>
+
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-blue-500 absolute left-3 top-2.5" />
+                    <input
+                      id="modal-otp"
+                      name="otp"
+                      type="text"
+                      maxLength={6}
+                      required
+                      autoFocus
+                      inputMode="numeric"
+                      autoComplete="off"
+                      data-lpignore="true"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                      placeholder="123456"
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm font-mono tracking-widest bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-bold text-blue-900 text-center"
+                    />
+                  </div>
+
+                  {/* 60-Second Cooldown Resend & Demo Pill */}
+                  <div className="flex items-center justify-between text-[11px] pt-1">
+                    <div>
+                      {resendCooldown > 0 ? (
+                        <span className="text-slate-400 font-mono">
+                          Resend code in <strong className="text-blue-700">{resendCooldown}s</strong>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleStep1Submit}
+                          disabled={loading}
+                          className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 font-semibold cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Resend OTP</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {demoOtp && (
+                      <button
+                        type="button"
+                        onClick={() => setOtp(demoOtp)}
+                        className="px-2 py-0.5 bg-white border border-blue-200 rounded text-blue-700 font-mono font-bold hover:bg-blue-50 transition-colors shadow-2xs cursor-pointer"
+                      >
+                        Auto-Fill {demoOtp}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 bg-blue-700 hover:bg-blue-800 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {loading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Verify OTP &amp; Create Account</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : (
+              /* STEP 1: Registration Form (Full Name, Email, Password -> "Send Verification OTP") */
+              <form onSubmit={handleStep1Submit} className="space-y-3">
                 <div>
                   <label htmlFor="modal-name" className="block text-xs font-semibold text-slate-700 mb-1">
                     Full Name
@@ -286,163 +394,129 @@ export const LoginModal = () => {
                       type="text"
                       required
                       autoComplete="name"
-                      disabled={isRegisterMode && otpSent}
-                      readOnly={isRegisterMode && otpSent}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="e.g. Ramesh Varma"
-                      className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm border rounded-xl focus:outline-none transition-colors ${
-                        isRegisterMode && otpSent
-                          ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
-                          : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
-                      }`}
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
                     />
                   </div>
                 </div>
-              )}
 
+                <div>
+                  <label htmlFor="modal-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Email Address
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      id="modal-email"
+                      name="email"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="modal-password" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      id="modal-password"
+                      name="password"
+                      type="password"
+                      required
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 bg-blue-700 hover:bg-blue-800 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {loading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Send Verification OTP</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            )
+          ) : (
+            /* STANDARD LOGIN FORM */
+            <form onSubmit={handleLoginSubmit} className="space-y-3">
               <div>
-                <label htmlFor="modal-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                <label htmlFor="modal-login-email" className="block text-xs font-semibold text-slate-700 mb-1">
                   Email Address
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
-                    id="modal-email"
+                    id="modal-login-email"
                     name="email"
                     type="email"
                     required
                     autoComplete="email"
-                    disabled={isRegisterMode && otpSent}
-                    readOnly={isRegisterMode && otpSent}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="name@example.com"
-                    className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm border rounded-xl focus:outline-none transition-colors font-mono ${
-                      isRegisterMode && otpSent
-                        ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
-                        : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
-                    }`}
+                    className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="modal-password" className="block text-xs font-semibold text-slate-700 mb-1">
+                <label htmlFor="modal-login-password" className="block text-xs font-semibold text-slate-700 mb-1">
                   Password
                 </label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
-                    id="modal-password"
+                    id="modal-login-password"
                     name="password"
                     type="password"
                     required
-                    autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
-                    disabled={isRegisterMode && otpSent}
-                    readOnly={isRegisterMode && otpSent}
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm border rounded-xl focus:outline-none transition-colors ${
-                      isRegisterMode && otpSent
-                        ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
-                        : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
-                    }`}
+                    className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
                   />
                 </div>
               </div>
-            </div>
 
-            {/* STEP 2: 6-Digit Email OTP Input with 60s Cooldown Timer */}
-            {isRegisterMode && otpSent && (
-              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3 animate-in fade-in">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-blue-900 block">Enter 6-Digit Email OTP</span>
-                    <span className="text-[10px] text-blue-700 font-mono">{email}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={resetRegisterState}
-                    className="text-[11px] text-blue-700 hover:underline font-semibold"
-                  >
-                    Change Email
-                  </button>
-                </div>
-
-                <div className="relative">
-                  <KeyRound className="w-4 h-4 text-blue-500 absolute left-3 top-2.5" />
-                  <input
-                    id="modal-otp"
-                    name="otp"
-                    type="text"
-                    maxLength={6}
-                    required
-                    autoFocus
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="123456"
-                    className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm font-mono tracking-widest bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-bold text-blue-900 text-center"
-                  />
-                </div>
-
-                {/* 60-Second Cooldown Resend & Demo Pill */}
-                <div className="flex items-center justify-between text-[11px] pt-1">
-                  <div>
-                    {resendCooldown > 0 ? (
-                      <span className="text-slate-400 font-mono">
-                        Resend code in <strong className="text-blue-700">{resendCooldown}s</strong>
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleSendOtp}
-                        disabled={loading}
-                        className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 font-semibold cursor-pointer"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Resend OTP</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {demoOtp && (
-                    <button
-                      type="button"
-                      onClick={() => setOtp(demoOtp)}
-                      className="px-2 py-0.5 bg-white border border-blue-200 rounded text-blue-700 font-mono font-bold hover:bg-blue-50 transition-colors shadow-2xs"
-                    >
-                      Auto-Fill {demoOtp}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2.5 px-4 bg-blue-700 hover:bg-blue-800 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-            >
-              {loading ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>
-                    {isRegisterMode
-                      ? otpSent
-                        ? 'Verify OTP & Create Account'
-                        : 'Send Verification OTP'
-                      : 'Sign In'}
-                  </span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 px-4 bg-blue-700 hover:bg-blue-800 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                {loading ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <span>Sign In</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          )}
 
           {/* Toggle between Login and Register */}
           <div className="pt-2 text-center text-xs text-slate-500 border-t border-slate-100">

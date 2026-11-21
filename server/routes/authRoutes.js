@@ -12,6 +12,7 @@ const {
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 
 router.post('/send-verification-otp', sendVerificationOtp);
+router.post('/send-otp', sendVerificationOtp);
 router.post('/verify-otp', verifyOtp);
 router.post('/register', register);
 router.post('/login', login);
