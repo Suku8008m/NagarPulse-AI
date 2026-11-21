@@ -232,10 +232,16 @@ const sendVerificationOtp = async (req, res) => {
       `[OTP Gateway Warning] Brevo delivery restricted or timed out (${emailResult.error}). Utilizing graceful demo fallback.`
     );
 
+    const isIpBlocked = emailResult.error && emailResult.error.includes('unrecognised IP');
+    const fallbackMessage = isIpBlocked
+      ? 'Brevo IP Authorization Required (visit https://app.brevo.com/security/authorised_ips to authorize IP or disable restriction). Demo OTP provided below.'
+      : 'OTP generated (Email delivery restricted on cloud tier, demo OTP provided below)';
+
     return res.status(200).json({
       success: true,
       fallbackMode: true,
-      message: 'OTP generated (Email delivery simulated for demo/cloud fallback)',
+      message: fallbackMessage,
+      gatewayError: emailResult.error || null,
       ...(allowDemo ? { demoOtp: rawOtp } : {}),
       expiresInSeconds: 600
     });

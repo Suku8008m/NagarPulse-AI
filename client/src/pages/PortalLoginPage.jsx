@@ -75,40 +75,7 @@ export default function PortalLoginPage() {
     }
   };
 
-  // Step 1: Send 6-digit OTP code to citizen email
-  const handleSendOtp = async (e) => {
-    if (e && typeof e.preventDefault === 'function') e.preventDefault();
-    const cleanEmail = String(email || '').trim().toLowerCase();
-    const cleanName = String(name || '').trim();
-    const cleanPassword = String(password || '');
-
-    if (!cleanEmail) {
-      setLocalError('Please provide your email address.');
-      return;
-    }
-    if (isRegistering && !cleanName) {
-      setLocalError('Please provide your full name.');
-      return;
-    }
-    if (isRegistering && cleanPassword.length < 6) {
-      setLocalError('Password must be at least 6 characters long.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    setLocalError('');
-    try {
-      const res = await sendVerificationOtp({ email: cleanEmail, name: cleanName, password: cleanPassword });
-      setOtpSent(true);
-      setResendCooldown(60);
-      setDemoOtp(res?.demoOtp || res?.demoOtpHint || '');
-      setInfoMsg(res?.message || `6-digit verification code sent to ${cleanEmail}.`);
-    } catch (err) {
-      setLocalError(err.response?.data?.message || err.message || 'Failed to dispatch verification OTP.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const handleSendOtp = (e) => handleStep1Submit(e);
 
   // Step 1: Send 6-digit OTP code to citizen email
   const handleStep1Submit = async (e) => {
