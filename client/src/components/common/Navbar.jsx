@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useServerStatus } from '../../context/ServerStatusContext';
 import {
   MapPin,
   FileText,
@@ -15,6 +16,7 @@ import {
 
 export const Navbar = () => {
   const { user, isAuthenticated, logout } = useAuth();
+  const { isWakingUp, lastLatencyMs } = useServerStatus();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -86,6 +88,20 @@ export const Navbar = () => {
               <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200">
                 Nellore Municipal Corp
               </span>
+              {isWakingUp ? (
+                <span className="hidden xl:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[10px] font-mono border border-amber-200 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                  Waking Up...
+                </span>
+              ) : lastLatencyMs !== null ? (
+                <span
+                  className="hidden xl:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-mono border border-emerald-200"
+                  title={`Render Backend Round-Trip: ${lastLatencyMs}ms`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  API {lastLatencyMs}ms
+                </span>
+              ) : null}
             </div>
             <p className="text-[10px] text-slate-500 font-mono hidden md:block">
               Civic Triage &amp; Geospatial Deduplication

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { ServerStatusProvider } from './context/ServerStatusContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/common/Navbar';
 import Footer from './components/common/Footer';
+import ColdStartBanner from './components/common/ColdStartBanner';
 import LoginModal from './components/common/LoginModal';
 import PublicMapPage from './pages/PublicMapPage';
 import CitizenPortalPage from './pages/CitizenPortalPage';
@@ -62,6 +64,9 @@ function MainLayout() {
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-600 selection:text-white text-slate-900">
       {/* 64px Sticky Role-Aware Navbar */}
       <Navbar />
+
+      {/* Crisp Cold-Start Detector & Live Countdown Banner */}
+      <ColdStartBanner />
 
       {/* Main Page View Routes */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
@@ -139,9 +144,11 @@ function MainLayout() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <MainLayout />
-      </AuthProvider>
+      <ServerStatusProvider>
+        <AuthProvider>
+          <MainLayout />
+        </AuthProvider>
+      </ServerStatusProvider>
     </BrowserRouter>
   );
 }
