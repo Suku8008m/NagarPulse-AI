@@ -6,7 +6,6 @@ const GrievanceSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
       default: () => {
         const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
         const dateStr = Date.now().toString(36).toUpperCase().slice(-4);
@@ -161,6 +160,5 @@ const GrievanceSchema = new mongoose.Schema(
 
 // 2dsphere index on location for geospatial queries ($near, $geoWithin)
 GrievanceSchema.index({ location: '2dsphere' });
-GrievanceSchema.index({ beforeImageHash: 1 });
 
 module.exports = mongoose.model('Grievance', GrievanceSchema);

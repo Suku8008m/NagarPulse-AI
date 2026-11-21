@@ -13,8 +13,7 @@ const UserSchema = new mongoose.Schema(
       required: true,
       unique: true,
       trim: true,
-      lowercase: true,
-      index: true
+      lowercase: true
     },
     isEmailVerified: {
       type: Boolean,

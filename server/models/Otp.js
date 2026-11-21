@@ -6,8 +6,7 @@ const OtpSchema = new mongoose.Schema(
       type: String,
       required: true,
       lowercase: true,
-      trim: true,
-      index: true
+      trim: true
     },
     otpHash: {
       type: String,
