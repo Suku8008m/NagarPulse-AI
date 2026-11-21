@@ -27,7 +27,7 @@ const sendEmailOtp = async ({ email, otp, name = 'Citizen' }) => {
     return { delivered: false, error: errorMsg };
   }
 
-  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@nagarpulse.in';
+  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'kamapallisukumar@gmail.com';
   const senderName = process.env.BREVO_SENDER_NAME || 'NagarPulse AI';
 
   const htmlContent = `
