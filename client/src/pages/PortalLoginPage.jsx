@@ -77,16 +77,20 @@ export default function PortalLoginPage() {
 
   // Step 1: Send 6-digit OTP code to citizen email
   const handleSendOtp = async (e) => {
-    if (e) e.preventDefault();
-    if (!email) {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanName = String(name || '').trim();
+    const cleanPassword = String(password || '');
+
+    if (!cleanEmail) {
       setLocalError('Please provide your email address.');
       return;
     }
-    if (isRegistering && !name) {
+    if (isRegistering && !cleanName) {
       setLocalError('Please provide your full name.');
       return;
     }
-    if (isRegistering && (!password || password.length < 6)) {
+    if (isRegistering && cleanPassword.length < 6) {
       setLocalError('Password must be at least 6 characters long.');
       return;
     }
@@ -94,11 +98,11 @@ export default function PortalLoginPage() {
     setIsSubmitting(true);
     setLocalError('');
     try {
-      const res = await sendVerificationOtp({ email, name, password });
+      const res = await sendVerificationOtp({ email: cleanEmail, name: cleanName, password: cleanPassword });
       setOtpSent(true);
       setResendCooldown(60);
       setDemoOtp(res?.demoOtp || res?.demoOtpHint || '');
-      setInfoMsg(res?.message || `6-digit verification code sent to ${email}.`);
+      setInfoMsg(res?.message || `6-digit verification code sent to ${cleanEmail}.`);
     } catch (err) {
       setLocalError(err.response?.data?.message || err.message || 'Failed to dispatch verification OTP.');
     } finally {
@@ -108,9 +112,14 @@ export default function PortalLoginPage() {
 
   // Step 2 or Login submission
   const handleStandardSubmit = async (e) => {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     setIsSubmitting(true);
     setLocalError('');
+
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanName = String(name || '').trim();
+    const cleanPassword = String(password || '');
+    const cleanOtp = String(otp || '').trim();
 
     try {
       if (isRegistering) {
@@ -121,27 +130,27 @@ export default function PortalLoginPage() {
           return;
         }
 
-        if (!otp || otp.trim().length !== 6) {
+        if (!cleanOtp || cleanOtp.length !== 6) {
           setLocalError('Please enter the 6-digit verification code.');
           setIsSubmitting(false);
           return;
         }
 
         // Verify Email OTP
-        const verifyRes = await verifyOtp({ email, otp: otp.trim() });
+        const verifyRes = await verifyOtp({ email: cleanEmail, otp: cleanOtp });
         const verificationToken = verifyRes?.verificationToken;
 
         // Finalize citizen registration
         await register({
-          name: name.trim(),
-          email: email.trim(),
-          password,
-          otp: otp.trim(),
+          name: cleanName,
+          email: cleanEmail,
+          password: cleanPassword,
+          otp: cleanOtp,
           verificationToken
         });
         navigate(redirectTarget || '/citizen');
       } else {
-        const res = await login({ email, password });
+        const res = await login({ email: cleanEmail, password: cleanPassword });
         const userRole = res?.user?.role;
         if (redirectTarget) {
           navigate(redirectTarget);
@@ -154,7 +163,6 @@ export default function PortalLoginPage() {
         }
       }
     } catch (err) {
-      console.error('Login submit error:', err);
       setLocalError(err.response?.data?.message || err.message || 'Authentication failed');
     } finally {
       setIsSubmitting(false);
@@ -338,57 +346,88 @@ export default function PortalLoginPage() {
         </div>
 
         <form onSubmit={handleStandardSubmit} className="space-y-3">
-          {/* STEP 1: Name, Email, Password */}
-          {(!isRegistering || !otpSent) && (
-            <>
-              {isRegistering && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name</label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. S. Venkat Reddy"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              )}
-
+          {/* Account Details (Name, Email, Password) - always mounted with full attributes for password manager compatibility */}
+          <div className="space-y-3">
+            {isRegistering && (
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                <label htmlFor="portal-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Full Name
+                </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
-                    type="email"
+                    id="portal-name"
+                    name="name"
+                    type="text"
                     required
-                    placeholder="name@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                    autoComplete="name"
+                    disabled={isRegistering && otpSent}
+                    readOnly={isRegistering && otpSent}
+                    placeholder="e.g. S. Venkat Reddy"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className={`w-full text-xs pl-9 pr-3 py-2 border rounded-lg focus:outline-none transition-colors ${
+                      isRegistering && otpSent
+                        ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                        : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-1 focus:ring-blue-500 text-slate-900'
+                    }`}
                   />
                 </div>
               </div>
+            )}
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
+            <div>
+              <label htmlFor="portal-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  id="portal-email"
+                  name="email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  disabled={isRegistering && otpSent}
+                  readOnly={isRegistering && otpSent}
+                  placeholder="name@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={`w-full text-xs pl-9 pr-3 py-2 border rounded-lg focus:outline-none transition-colors font-mono ${
+                    isRegistering && otpSent
+                      ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                      : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-1 focus:ring-blue-500 text-slate-900'
+                  }`}
+                />
               </div>
-            </>
-          )}
+            </div>
+
+            <div>
+              <label htmlFor="portal-password" className="block text-xs font-semibold text-slate-700 mb-1">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  id="portal-password"
+                  name="password"
+                  type="password"
+                  required
+                  autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                  disabled={isRegistering && otpSent}
+                  readOnly={isRegistering && otpSent}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={`w-full text-xs pl-9 pr-3 py-2 border rounded-lg focus:outline-none transition-colors ${
+                    isRegistering && otpSent
+                      ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                      : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-1 focus:ring-blue-500 text-slate-900'
+                  }`}
+                />
+              </div>
+            </div>
+          </div>
 
           {/* STEP 2: 6-Digit Email OTP Input with 60-Second Cooldown Timer */}
           {isRegistering && otpSent && (
@@ -410,10 +449,14 @@ export default function PortalLoginPage() {
               <div className="relative">
                 <KeyRound className="w-4 h-4 text-blue-500 absolute left-3 top-2.5" />
                 <input
+                  id="portal-otp"
+                  name="otp"
                   type="text"
                   maxLength={6}
                   required
                   autoFocus
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
                   placeholder="123456"

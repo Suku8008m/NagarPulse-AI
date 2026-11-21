@@ -63,16 +63,20 @@ export const LoginModal = () => {
 
   // Step 1: Send 6-digit OTP code to citizen email
   const handleSendOtp = async (e) => {
-    if (e) e.preventDefault();
-    if (!email) {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanName = String(name || '').trim();
+    const cleanPassword = String(password || '');
+
+    if (!cleanEmail) {
       setError('Please provide your email address.');
       return;
     }
-    if (isRegisterMode && !name) {
+    if (isRegisterMode && !cleanName) {
       setError('Please provide your full name.');
       return;
     }
-    if (isRegisterMode && (!password || password.length < 6)) {
+    if (isRegisterMode && cleanPassword.length < 6) {
       setError('Password must be at least 6 characters long.');
       return;
     }
@@ -80,11 +84,11 @@ export const LoginModal = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await sendVerificationOtp({ email, name, password });
+      const res = await sendVerificationOtp({ email: cleanEmail, name: cleanName, password: cleanPassword });
       setOtpSent(true);
       setResendCooldown(60);
       setDemoOtp(res?.demoOtp || res?.demoOtpHint || '');
-      setInfoMessage(res?.message || `6-digit verification code sent to ${email}.`);
+      setInfoMessage(res?.message || `6-digit verification code sent to ${cleanEmail}.`);
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Failed to dispatch verification OTP.');
     } finally {
@@ -94,9 +98,15 @@ export const LoginModal = () => {
 
   // Step 2 or Login submission
   const handleCredentialsSubmit = async (e) => {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     setLoading(true);
     setError(null);
+
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanName = String(name || '').trim();
+    const cleanPassword = String(password || '');
+    const cleanOtp = String(otp || '').trim();
+
     try {
       if (isRegisterMode) {
         if (!otpSent) {
@@ -106,27 +116,27 @@ export const LoginModal = () => {
           return;
         }
 
-        if (!otp || otp.trim().length !== 6) {
+        if (!cleanOtp || cleanOtp.length !== 6) {
           setError('Please enter the 6-digit verification code.');
           setLoading(false);
           return;
         }
 
         // Verify OTP first
-        const verifyRes = await verifyOtp({ email, otp: otp.trim() });
+        const verifyRes = await verifyOtp({ email: cleanEmail, otp: cleanOtp });
         const verificationToken = verifyRes?.verificationToken;
 
         // Register citizen with verified email
         await register({
-          name: name.trim(),
-          email: email.trim(),
-          password,
-          otp: otp.trim(),
+          name: cleanName,
+          email: cleanEmail,
+          password: cleanPassword,
+          otp: cleanOtp,
           verificationToken
         });
         closeLoginModal();
       } else {
-        await login({ email, password });
+        await login({ email: cleanEmail, password: cleanPassword });
         closeLoginModal();
       }
     } catch (err) {
@@ -261,63 +271,88 @@ export const LoginModal = () => {
 
           {/* Clean 2-Step Registration / Login Form */}
           <form onSubmit={handleCredentialsSubmit} className="space-y-3">
-            {/* STEP 1: Name, Email, Password */}
-            {(!isRegisterMode || !otpSent) && (
-              <>
-                {isRegisterMode && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Full Name
-                    </label>
-                    <div className="relative">
-                      <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                      <input
-                        type="text"
-                        required
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="e.g. Ramesh Varma"
-                        className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
-                      />
-                    </div>
-                  </div>
-                )}
-
+            {/* Account Details (Name, Email, Password) - always mounted for password manager & extension compatibility */}
+            <div className="space-y-3">
+              {isRegisterMode && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Email Address
+                  <label htmlFor="modal-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Full Name
                   </label>
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                     <input
-                      type="email"
+                      id="modal-name"
+                      name="name"
+                      type="text"
                       required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@example.com"
-                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors font-mono"
+                      autoComplete="name"
+                      disabled={isRegisterMode && otpSent}
+                      readOnly={isRegisterMode && otpSent}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Ramesh Varma"
+                      className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm border rounded-xl focus:outline-none transition-colors ${
+                        isRegisterMode && otpSent
+                          ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                          : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
+                      }`}
                     />
                   </div>
                 </div>
+              )}
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
-                    />
-                  </div>
+              <div>
+                <label htmlFor="modal-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    id="modal-email"
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    disabled={isRegisterMode && otpSent}
+                    readOnly={isRegisterMode && otpSent}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm border rounded-xl focus:outline-none transition-colors font-mono ${
+                      isRegisterMode && otpSent
+                        ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                        : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
+                    }`}
+                  />
                 </div>
-              </>
-            )}
+              </div>
+
+              <div>
+                <label htmlFor="modal-password" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    id="modal-password"
+                    name="password"
+                    type="password"
+                    required
+                    autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
+                    disabled={isRegisterMode && otpSent}
+                    readOnly={isRegisterMode && otpSent}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className={`w-full pl-9 pr-3 py-2 text-xs sm:text-sm border rounded-xl focus:outline-none transition-colors ${
+                      isRegisterMode && otpSent
+                        ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                        : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* STEP 2: 6-Digit Email OTP Input with 60s Cooldown Timer */}
             {isRegisterMode && otpSent && (
@@ -339,10 +374,14 @@ export const LoginModal = () => {
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-blue-500 absolute left-3 top-2.5" />
                   <input
+                    id="modal-otp"
+                    name="otp"
                     type="text"
                     maxLength={6}
                     required
                     autoFocus
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
                     value={otp}
                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
                     placeholder="123456"

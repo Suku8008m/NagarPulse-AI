@@ -232,12 +232,12 @@ export default function AuthorityPortal({ onRefreshStats }) {
           <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-2">
             <span>Operational Ticket Queue</span>
             <span className="text-xs bg-slate-100 px-2.5 py-0.5 rounded-full text-slate-600 font-semibold">
-              {filteredTickets.length} Tickets
+              {filteredTickets?.length || 0} Tickets
             </span>
           </h3>
         </div>
 
-        {filteredTickets.length === 0 ? (
+        {(!filteredTickets || filteredTickets.length === 0) ? (
           <div className="text-center py-12">
             <CheckCircle2 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <p className="text-sm font-semibold text-slate-700">No tickets matching selected filter</p>

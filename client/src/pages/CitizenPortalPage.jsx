@@ -101,7 +101,7 @@ export default function CitizenPortalPage({ grievances = [], onGrievanceCreated 
           }`}
         >
           <ListFilter className="w-3.5 h-3.5" />
-          <span>Complaint Ledger ({grievances.length})</span>
+          <span>Complaint Ledger ({Array.isArray(grievances) ? grievances.length : 0})</span>
         </button>
       </div>
 

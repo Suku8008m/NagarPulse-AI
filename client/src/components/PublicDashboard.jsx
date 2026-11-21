@@ -185,10 +185,11 @@ export default function PublicDashboard({ initialGrievances = [], onRefreshStats
 
   // KPI Calculations
   const kpis = useMemo(() => {
-    const total = grievances.length;
-    const critical = grievances.filter((g) => (g.severityScore || 0) >= 8).length;
-    const resolved = grievances.filter((g) => g.status === 'Verified Resolved').length;
-    const activeDepts = new Set(grievances.map((g) => g.department).filter(Boolean)).size;
+    const list = Array.isArray(grievances) ? grievances : [];
+    const total = list.length;
+    const critical = list.filter((g) => (g.severityScore || 0) >= 8).length;
+    const resolved = list.filter((g) => g.status === 'Verified Resolved').length;
+    const activeDepts = new Set(list.map((g) => g.department).filter(Boolean)).size;
     const resolutionRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
 
     return { total, critical, resolved, activeDepts, resolutionRate };
@@ -196,7 +197,8 @@ export default function PublicDashboard({ initialGrievances = [], onRefreshStats
 
   // Filtered grievances for card grid
   const displayGrievances = useMemo(() => {
-    return grievances.filter((g) => {
+    const list = Array.isArray(grievances) ? grievances : [];
+    return list.filter((g) => {
       if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();
       return (
@@ -315,7 +317,7 @@ export default function PublicDashboard({ initialGrievances = [], onRefreshStats
           <div className="flex items-center space-x-3 text-xs font-semibold text-slate-700">
             <span className="px-3 py-1.5 bg-slate-100 rounded-xl border border-slate-200 flex items-center space-x-1.5">
               <Layers className="w-4 h-4 text-blue-600" />
-              <span>{displayGrievances.length} Landmark Issues</span>
+              <span>{Array.isArray(displayGrievances) ? displayGrievances.length : 0} Landmark Issues</span>
             </span>
             <button
               onClick={fetchGrievancesList}
@@ -510,7 +512,7 @@ export default function PublicDashboard({ initialGrievances = [], onRefreshStats
           <h2 className="text-xl font-black text-slate-900 flex items-center space-x-2">
             <span>Public Incident Log</span>
             <span className="text-xs font-extrabold px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full">
-              {displayGrievances.length} Landmarks
+              {Array.isArray(displayGrievances) ? displayGrievances.length : 0} Landmarks
             </span>
           </h2>
           <span className="text-xs text-slate-500 hidden sm:block">
@@ -518,7 +520,7 @@ export default function PublicDashboard({ initialGrievances = [], onRefreshStats
           </span>
         </div>
 
-        {displayGrievances.length === 0 ? (
+        {(!displayGrievances || displayGrievances.length === 0) ? (
           <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 p-8 shadow-xs">
             <MapPin className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <h3 className="text-base font-bold text-slate-800">No grievances match criteria</h3>
