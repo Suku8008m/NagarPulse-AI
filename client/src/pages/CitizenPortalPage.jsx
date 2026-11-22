@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { toast } from 'react-toastify';
 import ReportForm from '../components/citizen/ReportForm';
 import MyReportsList from '../components/citizen/MyReportsList';
 import { useAuth } from '../context/AuthContext';
@@ -22,9 +23,11 @@ export default function CitizenPortalPage({ grievances = [], onGrievanceCreated 
   const handleCitizenDemo = async () => {
     setDemoLoading(true);
     try {
-      await loginAsDemo('citizen');
+      const res = await loginAsDemo('citizen');
+      toast.success(`Signed in as ${res?.user?.name || 'Ravi Kumar'} (Citizen)`);
     } catch (err) {
       console.error('Citizen demo login error:', err);
+      toast.error(err.response?.data?.message || err.message || 'Demo login failed');
     } finally {
       setDemoLoading(false);
     }

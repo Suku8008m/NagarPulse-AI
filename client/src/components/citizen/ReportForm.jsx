@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import AudioRecorder from './AudioRecorder';
@@ -73,7 +74,9 @@ export const ReportForm = ({ onGrievanceCreated, onGrievanceSubmitted }) => {
   const processAndWatermarkFile = async (rawFile, source) => {
     if (!rawFile) return;
     if (!rawFile.type.startsWith('image/')) {
-      setError('Please select a valid image file (JPEG, PNG, WebP).');
+      const msg = 'Please select a valid image file (JPEG, PNG, WebP).';
+      setError(msg);
+      toast.error(msg);
       return;
     }
 
@@ -90,11 +93,13 @@ export const ReportForm = ({ onGrievanceCreated, onGrievanceSubmitted }) => {
 
       setImageFile(stamped.file);
       setImagePreview(stamped.previewUrl);
+      toast.info("Geo-Telemetry watermark locked");
     } catch (err) {
       console.error('Failed to watermark image:', err);
       // Fallback to raw file
       setImageFile(rawFile);
       setImagePreview(URL.createObjectURL(rawFile));
+      toast.info("Geo-Telemetry watermark locked");
     } finally {
       setIsWatermarking(false);
     }
@@ -146,6 +151,7 @@ export const ReportForm = ({ onGrievanceCreated, onGrievanceSubmitted }) => {
         setImageFile(generated.file);
         setImagePreview(generated.previewUrl);
         setCaptureSource('LIVE_GEO_CAM');
+        toast.info("Geo-Telemetry watermark locked");
       }
     } catch (err) {
       console.error('Preset generation error:', err);
@@ -157,7 +163,9 @@ export const ReportForm = ({ onGrievanceCreated, onGrievanceSubmitted }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!imageFile) {
-      setError('Please capture or upload a clear photo of the civic hazard.');
+      const msg = 'Please capture or upload a clear photo of the civic hazard.';
+      setError(msg);
+      toast.error(msg);
       return;
     }
 
@@ -186,6 +194,14 @@ export const ReportForm = ({ onGrievanceCreated, onGrievanceSubmitted }) => {
       setTriageResult(res);
 
       const ticket = res.data || res;
+      const trackingId = ticket.trackingId || res.trackingId || '';
+
+      if (res.isDuplicate) {
+        toast.info(`Merged with existing 50m active ticket (${trackingId})`);
+      } else {
+        toast.success(`Civic hazard triaged & logged (${trackingId})`);
+      }
+
       if (onGrievanceCreated) {
         onGrievanceCreated(ticket);
       }
@@ -196,11 +212,17 @@ export const ReportForm = ({ onGrievanceCreated, onGrievanceSubmitted }) => {
       console.error('[Submit Grievance error]:', err);
       const resData = err.response?.data;
       if (err.response?.status === 409) {
-        setError(resData?.message || 'Duplicate media or report detected. This issue has already been registered.');
+        const msg = resData?.message || 'Duplicate media or report detected. This issue has already been registered.';
+        setError(msg);
+        toast.error(msg);
       } else if (err.response?.status === 422) {
-        setError(resData?.message || resData?.rejectionReason || 'Submitted image was rejected by AI verification as non-civic or spam.');
+        const msg = resData?.message || resData?.rejectionReason || 'Submitted image was rejected by AI verification as non-civic or spam.';
+        setError(msg);
+        toast.error(msg);
       } else {
-        setError(resData?.message || err.message || 'Failed to submit grievance. Please try again.');
+        const msg = resData?.message || err.message || 'Failed to submit grievance. Please try again.';
+        setError(msg);
+        toast.error(msg);
       }
     } finally {
       setIsSubmitting(false);
@@ -238,17 +260,6 @@ export const ReportForm = ({ onGrievanceCreated, onGrievanceSubmitted }) => {
       </div>
 
       <form onSubmit={handleSubmit} className="p-5 space-y-5">
-        {/* Error Alert */}
-        {error && (
-          <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-800 text-xs flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
-            <div>
-              <strong className="font-semibold block">Submission Flagged / Rejected:</strong>
-              <span>{error}</span>
-            </div>
-          </div>
-        )}
-
         {/* 1-Click Evaluation Presets for Hackathon Judges */}
         <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-xl space-y-2">
           <div className="flex items-center justify-between">

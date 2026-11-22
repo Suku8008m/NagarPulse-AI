@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { toast } from 'react-toastify';
 import { Mic, Square, Trash2, Volume2, Play, Pause } from 'lucide-react';
 
 export const AudioRecorder = ({ onAudioRecorded, onAudioCleared }) => {
@@ -44,7 +45,7 @@ export const AudioRecorder = ({ onAudioRecorded, onAudioCleared }) => {
       }, 1000);
     } catch (err) {
       console.warn('[AudioRecorder error]:', err.message);
-      alert('Microphone access was denied or is unavailable on this device.');
+      toast.error('Microphone access was denied or is unavailable on this device.');
     }
   };
 

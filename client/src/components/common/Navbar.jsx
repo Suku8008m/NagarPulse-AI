@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
 import { useServerStatus } from '../../context/ServerStatusContext';
 import {
@@ -23,6 +24,7 @@ export const Navbar = () => {
   const handleLogout = async () => {
     setMobileMenuOpen(false);
     await logout();
+    toast.info("Signed out successfully");
     navigate('/');
   };
 

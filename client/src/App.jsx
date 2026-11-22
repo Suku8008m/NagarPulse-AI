@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import { ServerStatusProvider } from './context/ServerStatusContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/common/Navbar';
@@ -134,6 +136,17 @@ function MainLayout() {
 
       {/* Modal for quick auth actions */}
       <LoginModal />
+
+      {/* Crisp Civic Operations Toast Notifications */}
+      <ToastContainer
+        position="top-right"
+        autoClose={3500}
+        hideProgressBar={false}
+        newestOnTop
+        closeOnClick
+        pauseOnHover
+        theme="light"
+      />
 
       {/* Footer with personal signature and judge quick links */}
       <Footer />

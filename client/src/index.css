@@ -44,3 +44,13 @@ code, kbd, samp, pre, .font-mono {
   margin: 0 !important;
   line-height: 1.4;
 }
+
+/* Crisp Civic Operations Toast styling */
+.Toastify__toast {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}

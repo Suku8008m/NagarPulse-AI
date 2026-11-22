@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
 import { StatusBadge, SeverityBadge, CategoryBadge } from '../common/StatusBadge';
 import LoginAuditTable from './LoginAuditTable';
@@ -41,13 +42,15 @@ export default function AdminCommandCenter({ grievances = [], onGrievanceUpdated
     try {
       const response = await reassignGrievance(reassignTarget._id, newDepartment);
       if (onGrievanceUpdated) {
-        onGrievanceUpdated(response.data.grievance || response.data);
+        onGrievanceUpdated(response.data?.grievance || response.data || response);
       }
+      toast.success(`Department updated to ${newDepartment} (${reassignTarget.trackingId})`);
       setReassignTarget(null);
       setNewDepartment('');
     } catch (err) {
       console.error('Reassignment failed:', err);
-      alert('Failed to reassign department: ' + (err.response?.data?.message || err.message));
+      const errMsg = err.response?.data?.message || err.message || 'Failed to reassign department';
+      toast.error(errMsg);
     } finally {
       setIsReassigning(false);
     }

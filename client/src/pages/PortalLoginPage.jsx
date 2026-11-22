@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 import {
   Shield,
@@ -57,7 +58,10 @@ export default function PortalLoginPage() {
     setIsSubmitting(true);
     setLocalError('');
     try {
-      await loginAsDemo(role);
+      const res = await loginAsDemo(role);
+      const displayName = res?.user?.name || (role.charAt(0).toUpperCase() + role.slice(1));
+      const displayRole = res?.user?.role ? (res.user.role.charAt(0).toUpperCase() + res.user.role.slice(1)) : (role.charAt(0).toUpperCase() + role.slice(1));
+      toast.success(`Signed in as ${displayName} (${displayRole})`);
       if (role === 'citizen') {
         navigate(redirectTarget || '/citizen');
       } else if (role === 'operator') {
@@ -69,7 +73,9 @@ export default function PortalLoginPage() {
       }
     } catch (err) {
       console.error('Demo login error:', err);
-      setLocalError(err.response?.data?.message || err.message || 'Demo login failed');
+      const errMsg = err.response?.data?.message || err.message || 'Demo login failed';
+      setLocalError(errMsg);
+      toast.error(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -85,15 +91,21 @@ export default function PortalLoginPage() {
     const cleanPassword = String(password || '');
 
     if (!cleanEmail) {
-      setLocalError('Please provide your email address.');
+      const msg = 'Please provide your email address.';
+      setLocalError(msg);
+      toast.error(msg);
       return;
     }
     if (!cleanName) {
-      setLocalError('Please provide your full name.');
+      const msg = 'Please provide your full name.';
+      setLocalError(msg);
+      toast.error(msg);
       return;
     }
     if (cleanPassword.length < 6) {
-      setLocalError('Password must be at least 6 characters long.');
+      const msg = 'Password must be at least 6 characters long.';
+      setLocalError(msg);
+      toast.error(msg);
       return;
     }
 
@@ -105,8 +117,11 @@ export default function PortalLoginPage() {
       setResendCooldown(60);
       setDemoOtp(res?.demoOtp || res?.demoOtpHint || '');
       setInfoMsg(res?.message || `6-digit verification code sent to ${cleanEmail}.`);
+      toast.success("6-digit verification OTP sent to your email");
     } catch (err) {
-      setLocalError(err.response?.data?.message || err.message || 'Failed to dispatch verification OTP.');
+      const errMsg = err.response?.data?.message || err.message || 'Failed to dispatch verification OTP.';
+      setLocalError(errMsg);
+      toast.error(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -124,7 +139,9 @@ export default function PortalLoginPage() {
     const cleanOtp = String(otp || '').trim();
 
     if (!cleanOtp || cleanOtp.length !== 6) {
-      setLocalError('Please enter the 6-digit verification code.');
+      const msg = 'Please enter the 6-digit verification code.';
+      setLocalError(msg);
+      toast.error(msg);
       setIsSubmitting(false);
       return;
     }
@@ -142,9 +159,12 @@ export default function PortalLoginPage() {
         otp: cleanOtp,
         verificationToken
       });
+      toast.success("Email verified! Welcome to NagarPulse AI");
       navigate(redirectTarget || '/citizen');
     } catch (err) {
-      setLocalError(err.response?.data?.message || err.message || 'Verification or registration failed');
+      const errMsg = err.response?.data?.message || err.message || 'Invalid or expired OTP code.';
+      setLocalError(errMsg);
+      toast.error(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -160,18 +180,25 @@ export default function PortalLoginPage() {
     const cleanPassword = String(password || '');
 
     if (!cleanEmail) {
-      setLocalError('Please provide your email address.');
+      const msg = 'Please provide your email address.';
+      setLocalError(msg);
+      toast.error(msg);
       setIsSubmitting(false);
       return;
     }
     if (!cleanPassword) {
-      setLocalError('Please provide your password.');
+      const msg = 'Please provide your password.';
+      setLocalError(msg);
+      toast.error(msg);
       setIsSubmitting(false);
       return;
     }
 
     try {
       const res = await login({ email: cleanEmail, password: cleanPassword });
+      const displayName = res?.user?.name || 'User';
+      const displayRole = res?.user?.role ? (res.user.role.charAt(0).toUpperCase() + res.user.role.slice(1)) : 'Citizen';
+      toast.success(`Signed in as ${displayName} (${displayRole})`);
       const userRole = res?.user?.role;
       if (redirectTarget) {
         navigate(redirectTarget);
@@ -183,7 +210,9 @@ export default function PortalLoginPage() {
         navigate('/citizen');
       }
     } catch (err) {
-      setLocalError(err.response?.data?.message || err.message || 'Authentication failed');
+      const errMsg = err.response?.data?.message || err.message || 'Wrong credentials. Please check email and password.';
+      setLocalError(errMsg);
+      toast.error(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -204,22 +233,6 @@ export default function PortalLoginPage() {
           Select an authorized role for 1-click evaluation access, or authenticate with department credentials.
         </p>
       </div>
-
-      {(localError || authError) && (
-        <div className="max-w-md mx-auto p-3.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2.5 shadow-2xs">
-          <svg className="w-4 h-4 text-rose-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-          <span>{localError || authError}</span>
-        </div>
-      )}
-
-      {infoMsg && (
-        <div className="max-w-md mx-auto p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2.5 shadow-2xs">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{infoMsg}</span>
-        </div>
-      )}
 
       {/* 1-Click Judge Demo Login Cards */}
       <div className="space-y-3">

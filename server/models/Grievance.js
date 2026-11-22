@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { generateTrackingId } = require('../utils/generateTrackingId');
 
 const GrievanceSchema = new mongoose.Schema(
   {
@@ -6,11 +7,7 @@ const GrievanceSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      default: () => {
-        const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
-        const dateStr = Date.now().toString(36).toUpperCase().slice(-4);
-        return `NP-${dateStr}-${randomStr}`;
-      }
+      default: () => generateTrackingId('NP')
     },
     description: {
       type: String,

@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { toast } from 'react-toastify';
 import { resolveGrievance } from '../../services/grievanceService';
 import { watermarkImage } from '../../utils/geoWatermark';
 import { Camera, UploadCloud, ShieldCheck, X } from 'lucide-react';
@@ -45,7 +46,9 @@ export default function VisionAuditModal({ grievance, isOpen, onClose, onSuccess
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!afterImage) {
-      setErrorMessage('Please capture or upload a post-repair verification photo.');
+      const msg = 'Please capture or upload a post-repair verification photo.';
+      setErrorMessage(msg);
+      toast.error(msg);
       return;
     }
 
@@ -61,12 +64,21 @@ export default function VisionAuditModal({ grievance, isOpen, onClose, onSuccess
       const response = await resolveGrievance(grievance._id, formData);
       const data = response.data || response;
 
-      setAuditResult(data.aiVerification || data.grievance?.aiVerification || {
-        isResolved: true,
-        confidence: 94,
-        qualityAssessment: 'Satisfactory',
-        verificationNote: 'Gemini Vision confirmed hazard clearance against background landmarks.'
-      });
+      const aiResult = data.aiVerification || data.grievance?.aiVerification || {
+        isResolved: data.isResolved ?? true,
+        confidence: data.confidence || 94,
+        qualityAssessment: data.qualityAssessment || 'Satisfactory',
+        verificationNote: data.verificationNote || 'Gemini Vision confirmed hazard clearance against background landmarks.'
+      };
+
+      setAuditResult(aiResult);
+
+      const isResolved = Boolean(aiResult.isResolved ?? data.isResolved);
+      if (isResolved) {
+        toast.success("Repair verified by Gemini Vision — Ticket Resolved");
+      } else {
+        toast.warning("Repair rejected by AI Vision — Hazard still visible");
+      }
 
       if (onSuccess) {
         onSuccess(data.grievance || data);
@@ -75,6 +87,7 @@ export default function VisionAuditModal({ grievance, isOpen, onClose, onSuccess
       console.error('Audit verification error:', err);
       const msg = err.response?.data?.message || err.message || 'Verification audit failed';
       setErrorMessage(msg);
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }

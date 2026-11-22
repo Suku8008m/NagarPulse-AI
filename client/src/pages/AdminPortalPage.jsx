@@ -1,9 +1,19 @@
 import React from 'react';
+import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 import AdminCommandCenter from '../components/operations/AdminCommandCenter';
 
 export default function AdminPortalPage({ grievances = [], onGrievanceUpdated }) {
   const { user, loginAsDemo, openLoginModal } = useAuth();
+
+  const handleDemoAdmin = async () => {
+    try {
+      const res = await loginAsDemo('admin');
+      toast.success(`Signed in as ${res?.user?.name || 'Commissioner Nellore'} (Admin)`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Demo login failed');
+    }
+  };
 
   const isAdmin = user && user.role === 'admin';
 
@@ -26,8 +36,8 @@ export default function AdminPortalPage({ grievances = [], onGrievanceUpdated })
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
             type="button"
-            onClick={() => loginAsDemo('admin')}
-            className="w-full sm:w-auto px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors inline-flex items-center justify-center gap-2"
+            onClick={handleDemoAdmin}
+            className="w-full sm:w-auto px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors inline-flex items-center justify-center gap-2 cursor-pointer"
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
             <span>1-Click Demo Login (Commissioner Nellore)</span>
@@ -35,7 +45,7 @@ export default function AdminPortalPage({ grievances = [], onGrievanceUpdated })
           <button
             type="button"
             onClick={() => openLoginModal('admin')}
-            className="w-full sm:w-auto px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium transition-colors"
+            className="w-full sm:w-auto px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium transition-colors cursor-pointer"
           >
             Custom Credentials
           </button>
