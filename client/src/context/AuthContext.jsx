@@ -92,6 +92,14 @@ export const AuthProvider = ({ children }) => {
     return login({ demoRole });
   };
 
+  const forgotPassword = async ({ email }) => {
+    return authService.forgotPassword({ email });
+  };
+
+  const resetPassword = async ({ email, otp, newPassword }) => {
+    return authService.resetPassword({ email, otp, newPassword });
+  };
+
   const value = {
     user,
     token,
@@ -106,7 +114,9 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     openLoginModal,
-    closeLoginModal
+    closeLoginModal,
+    forgotPassword,
+    resetPassword
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export default function PortalLoginPage() {
-  const { login, register, loginAsDemo, sendVerificationOtp, verifyOtp, error: authError } = useAuth();
+  const { login, register, loginAsDemo, sendVerificationOtp, verifyOtp, forgotPassword, resetPassword, error: authError } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTarget = searchParams.get('redirect');
@@ -34,7 +34,16 @@ export default function PortalLoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState('');
 
-  // 60-second cooldown interval timer for OTP resend
+  // Forgot password state
+  const [isForgot, setIsForgot] = useState(false);
+  const [forgotStep, setForgotStep] = useState(1);
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [forgotCooldown, setForgotCooldown] = useState(0);
+  const [forgotDemoOtp, setForgotDemoOtp] = useState('');
+
+  // 60-second cooldown interval timer for OTP resend (registration)
   useEffect(() => {
     let timer;
     if (otpSent && resendCooldown > 0) {
@@ -45,6 +54,17 @@ export default function PortalLoginPage() {
     return () => clearInterval(timer);
   }, [otpSent, resendCooldown]);
 
+  // 60-second cooldown interval timer for forgot password OTP resend
+  useEffect(() => {
+    let timer;
+    if (isForgot && forgotStep === 2 && forgotCooldown > 0) {
+      timer = setInterval(() => {
+        setForgotCooldown((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isForgot, forgotStep, forgotCooldown]);
+
   const resetRegisterState = () => {
     setOtpSent(false);
     setOtp('');
@@ -52,6 +72,86 @@ export default function PortalLoginPage() {
     setResendCooldown(0);
     setInfoMsg('');
     setLocalError('');
+  };
+
+  const resetForgotState = () => {
+    setIsForgot(false);
+    setForgotStep(1);
+    setForgotOtp('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setForgotCooldown(0);
+    setForgotDemoOtp('');
+    setLocalError('');
+  };
+
+  const handleForgotPasswordStep1 = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      const msg = 'Please enter your registered email address.';
+      setLocalError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setLocalError('');
+    try {
+      const res = await forgotPassword({ email: cleanEmail });
+      setForgotStep(2);
+      setForgotCooldown(60);
+      if (res?.demoOtp) {
+        setForgotDemoOtp(res.demoOtp);
+      }
+      toast.success(res?.message || 'Password reset OTP sent to your email.');
+    } catch (err) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to dispatch password reset OTP.';
+      setLocalError(errMsg);
+      toast.error(errMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleForgotPasswordStep2 = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanOtp = String(forgotOtp || '').trim();
+
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      const msg = 'Please enter the 6-digit OTP code sent to your email.';
+      setLocalError(msg);
+      toast.error(msg);
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      const msg = 'New password must be at least 6 characters.';
+      setLocalError(msg);
+      toast.error(msg);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      const msg = 'Passwords do not match.';
+      setLocalError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setLocalError('');
+    try {
+      const res = await resetPassword({ email: cleanEmail, otp: cleanOtp, newPassword });
+      toast.success(res?.message || 'Password reset successful! You can now sign in.');
+      resetForgotState();
+      setPassword('');
+    } catch (err) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to reset password. Check your OTP.';
+      setLocalError(errMsg);
+      toast.error(errMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDemoClick = async (role) => {
@@ -363,14 +463,22 @@ export default function PortalLoginPage() {
       <div className="max-w-md mx-auto bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-4">
         <div className="text-center">
           <h2 className="text-sm font-bold text-slate-900">
-            {isRegistering
+            {isForgot
+              ? forgotStep === 2
+                ? 'Set New Password'
+                : 'Reset Your Password'
+              : isRegistering
               ? otpSent
                 ? 'Step 2: Enter Email Verification OTP'
                 : 'Step 1: Citizen Account Details'
               : 'Sign in to NagarPulse AI'}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            {isRegistering
+            {isForgot
+              ? forgotStep === 2
+                ? `Enter the 6-digit code sent to ${email}`
+                : 'Enter your registered email to receive a password reset OTP'
+              : isRegistering
               ? otpSent
                 ? `6-digit code sent to ${email} (valid for 10 minutes)`
                 : 'Enter your credentials to receive an Email Verification OTP'
@@ -378,8 +486,180 @@ export default function PortalLoginPage() {
           </p>
         </div>
 
-        {/* Form Area: Step 1 vs Step 2 vs Standard Login as mutually exclusive forms */}
-        {isRegistering ? (
+        {/* Form Area: Forgot Password vs Registration vs Standard Login */}
+        {isForgot ? (
+          forgotStep === 2 ? (
+            /* FORGOT PASSWORD - STEP 2: Enter OTP & New Password */
+            <form onSubmit={handleForgotPasswordStep2} className="space-y-3">
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-blue-900 block">
+                      Enter 6-Digit Password Reset OTP
+                    </span>
+                    <span className="text-[10px] text-blue-700 font-mono">
+                      {email}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForgotStep(1)}
+                    className="text-[11px] text-blue-700 hover:text-blue-900 font-semibold underline cursor-pointer"
+                  >
+                    Change Email
+                  </button>
+                </div>
+
+                <div>
+                  <label htmlFor="portal-forgot-otp" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Verification Code
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-blue-500 absolute left-3 top-2.5" />
+                    <input
+                      id="portal-forgot-otp"
+                      type="text"
+                      maxLength={6}
+                      required
+                      value={forgotOtp}
+                      onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, ''))}
+                      placeholder="123456"
+                      className="w-full pl-9 pr-3 py-2 text-xs font-mono tracking-widest bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-bold text-blue-900 text-center"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] pt-1">
+                    <div>
+                      {forgotCooldown > 0 ? (
+                        <span className="text-slate-400 font-mono">
+                          Resend code in <strong className="text-blue-700">{forgotCooldown}s</strong>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleForgotPasswordStep1}
+                          disabled={isSubmitting}
+                          className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 font-semibold cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Resend Code</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {forgotDemoOtp && (
+                      <button
+                        type="button"
+                        onClick={() => setForgotOtp(forgotDemoOtp)}
+                        className="px-2 py-0.5 bg-white border border-blue-200 rounded text-blue-700 font-mono font-bold hover:bg-blue-50 transition-colors shadow-2xs cursor-pointer"
+                      >
+                        Auto-Fill {forgotDemoOtp}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="portal-forgot-new-pass" className="block text-xs font-semibold text-slate-700 mb-1">
+                  New Password (min 6 characters)
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    id="portal-forgot-new-pass"
+                    type="password"
+                    required
+                    minLength={6}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="portal-forgot-confirm-pass" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Confirm New Password
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    id="portal-forgot-confirm-pass"
+                    type="password"
+                    required
+                    minLength={6}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {isSubmitting ? (
+                  <>
+                    <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    <span>Resetting Password...</span>
+                  </>
+                ) : (
+                  <span>Reset Password</span>
+                )}
+              </button>
+            </form>
+          ) : (
+            /* FORGOT PASSWORD - STEP 1: Enter Email */
+            <form onSubmit={handleForgotPasswordStep1} className="space-y-3">
+              <div>
+                <label htmlFor="portal-forgot-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Registered Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    id="portal-forgot-email"
+                    type="email"
+                    required
+                    placeholder="name@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900 font-mono"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  We will send a 6-digit OTP code to this email to reset your password.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {isSubmitting ? (
+                  <>
+                    <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    <span>Sending Code...</span>
+                  </>
+                ) : (
+                  <span>Send Password Reset OTP</span>
+                )}
+              </button>
+            </form>
+          )
+        ) : isRegistering ? (
           otpSent ? (
             /* STEP 2: 6-Digit Email OTP Form (Mutually exclusive form, NO password input, ignores autofill extensions) */
             <form
@@ -578,9 +858,21 @@ export default function PortalLoginPage() {
             </div>
 
             <div>
-              <label htmlFor="portal-login-password" className="block text-xs font-semibold text-slate-700 mb-1">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="portal-login-password" className="block text-xs font-semibold text-slate-700">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsForgot(true);
+                    setForgotStep(1);
+                  }}
+                  className="text-xs text-blue-700 hover:text-blue-800 font-semibold cursor-pointer"
+                >
+                  Forgot password?
+                </button>
+              </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
@@ -618,16 +910,26 @@ export default function PortalLoginPage() {
         )}
 
         <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-          <button
-            type="button"
-            onClick={() => {
-              setIsRegistering(!isRegistering);
-              resetRegisterState();
-            }}
-            className="text-blue-700 hover:underline font-semibold cursor-pointer"
-          >
-            {isRegistering ? 'Existing user? Sign In' : 'New citizen? Register with Email OTP'}
-          </button>
+          {isForgot ? (
+            <button
+              type="button"
+              onClick={resetForgotState}
+              className="text-blue-700 hover:underline font-semibold cursor-pointer"
+            >
+              Remembered your password? Sign In
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setIsRegistering(!isRegistering);
+                resetRegisterState();
+              }}
+              className="text-blue-700 hover:underline font-semibold cursor-pointer"
+            >
+              {isRegistering ? 'Existing user? Sign In' : 'New citizen? Register with Email OTP'}
+            </button>
+          )}
 
           <Link to="/" className="text-slate-500 hover:text-slate-800">
             Return to Live Map

@@ -57,6 +57,18 @@ export const getLoginLogs = async (limit = 50) => {
   };
 };
 
+// Request 6-digit OTP code to reset password
+export const forgotPassword = async ({ email }) => {
+  const res = await api.post('/auth/forgot-password', { email });
+  return res.data;
+};
+
+// Reset password with 6-digit OTP
+export const resetPassword = async ({ email, otp, newPassword }) => {
+  const res = await api.post('/auth/reset-password', { email, otp, newPassword });
+  return res.data;
+};
+
 export const authService = {
   sendVerificationOtp,
   verifyOtp,
@@ -64,7 +76,9 @@ export const authService = {
   register,
   getMe,
   logout,
-  getLoginLogs
+  getLoginLogs,
+  forgotPassword,
+  resetPassword
 };
 
 export default authService;

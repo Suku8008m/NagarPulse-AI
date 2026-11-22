@@ -25,10 +25,20 @@ export const LoginModal = () => {
     register,
     sendVerificationOtp,
     verifyOtp,
-    targetPortal
+    targetPortal,
+    forgotPassword,
+    resetPassword
   } = useAuth();
 
   const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isForgotMode, setIsForgotMode] = useState(false);
+  const [forgotStep, setForgotStep] = useState(1);
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [forgotCooldown, setForgotCooldown] = useState(0);
+  const [forgotDemoOtp, setForgotDemoOtp] = useState('');
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -51,6 +61,17 @@ export const LoginModal = () => {
     return () => clearInterval(timer);
   }, [otpSent, resendCooldown]);
 
+  // Cooldown timer for Forgot Password OTP resend
+  useEffect(() => {
+    let timer;
+    if (forgotStep === 2 && forgotCooldown > 0) {
+      timer = setInterval(() => {
+        setForgotCooldown((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [forgotStep, forgotCooldown]);
+
   if (!isLoginModalOpen) return null;
   
   const resetRegisterState = () => {
@@ -60,6 +81,75 @@ export const LoginModal = () => {
     setResendCooldown(0);
     setInfoMessage('');
     setError(null);
+  };
+
+  const resetForgotState = () => {
+    setIsForgotMode(false);
+    setForgotStep(1);
+    setForgotOtp('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setForgotCooldown(0);
+    setForgotDemoOtp('');
+    setError(null);
+  };
+
+  // Forgot Password - Step 1: Send Reset OTP
+  const handleForgotPasswordStep1 = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+
+    if (!cleanEmail) {
+      toast.error('Please enter your registered email address.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await forgotPassword({ email: cleanEmail });
+      setForgotStep(2);
+      setForgotCooldown(60);
+      setForgotDemoOtp(res?.demoOtp || '');
+      toast.success("Password reset OTP sent to your email");
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to dispatch password reset code.';
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Forgot Password - Step 2: Verify OTP and Set New Password
+  const handleForgotPasswordStep2 = async (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanOtp = String(forgotOtp || '').trim();
+
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      toast.error('Please enter the 6-digit verification code.');
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('New password must be at least 6 characters long.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match. Please re-enter.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await resetPassword({ email: cleanEmail, otp: cleanOtp, newPassword });
+      toast.success("Password reset successfully! Please sign in with your new password.");
+      resetForgotState();
+      setPassword('');
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to reset password.';
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Step 1: Send 6-digit OTP code to citizen email
@@ -214,14 +304,22 @@ export const LoginModal = () => {
               <span>NagarPulse Access Control (RBAC)</span>
             </div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-900">
-              {isRegisterMode
+              {isForgotMode
+                ? forgotStep === 2
+                  ? "Set New Password"
+                  : "Reset Your Password"
+                : isRegisterMode
                 ? otpSent
                   ? "Step 2: Enter Email Verification OTP"
                   : "Step 1: Citizen Account Details"
                 : "Portal Authentication"}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {isRegisterMode
+              {isForgotMode
+                ? forgotStep === 2
+                  ? `Enter the 6-digit code sent to ${email}`
+                  : "Enter your registered email to receive a password reset code."
+                : isRegisterMode
                 ? otpSent
                   ? `6-digit code sent to ${email} (valid for 10 minutes)`
                   : "Enter your credentials to receive an Email Verification OTP"
@@ -240,75 +338,248 @@ export const LoginModal = () => {
 
         {/* Scrollable Body */}
         <div className="p-5 sm:p-6 space-y-4 overflow-y-auto">
-          {/* 1-Click Judge Demo Logins */}
-          <div className="bg-slate-50 p-3.5 sm:p-4 rounded-xl border border-slate-200 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                Instant 1-Click Judge Demo Login
-              </span>
-              <span className="text-[10px] font-mono text-slate-400">
-                Pre-Verified
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => handleDemoLogin("citizen")}
-                className="flex flex-col items-center justify-center p-2 sm:p-2.5 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-lg text-center transition-all group cursor-pointer shadow-2xs"
-              >
-                <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-700 group-hover:text-blue-700 mb-1">
-                  <User className="w-3.5 h-3.5" />
+          {!isForgotMode && (
+            <>
+              {/* 1-Click Judge Demo Logins */}
+              <div className="bg-slate-50 p-3.5 sm:p-4 rounded-xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    Instant 1-Click Judge Demo Login
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    Pre-Verified
+                  </span>
                 </div>
-                <span className="text-xs font-semibold text-slate-800">
-                  Citizen
-                </span>
-                <span className="text-[10px] text-slate-500">Ravi Kumar</span>
-              </button>
 
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => handleDemoLogin("operator")}
-                className="flex flex-col items-center justify-center p-2 sm:p-2.5 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-lg text-center transition-all group cursor-pointer shadow-2xs"
-              >
-                <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-700 group-hover:text-blue-700 mb-1">
-                  <Wrench className="w-3.5 h-3.5" />
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => handleDemoLogin("citizen")}
+                    className="flex flex-col items-center justify-center p-2 sm:p-2.5 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-lg text-center transition-all group cursor-pointer shadow-2xs"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-700 group-hover:text-blue-700 mb-1">
+                      <User className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-xs font-semibold text-slate-800">
+                      Citizen
+                    </span>
+                    <span className="text-[10px] text-slate-500">Ravi Kumar</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => handleDemoLogin("operator")}
+                    className="flex flex-col items-center justify-center p-2 sm:p-2.5 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-lg text-center transition-all group cursor-pointer shadow-2xs"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-700 group-hover:text-blue-700 mb-1">
+                      <Wrench className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-xs font-semibold text-slate-800">
+                      Operator
+                    </span>
+                    <span className="text-[10px] text-slate-500">Roads Dept</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => handleDemoLogin("admin")}
+                    className="flex flex-col items-center justify-center p-2 sm:p-2.5 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-lg text-center transition-all group cursor-pointer shadow-2xs"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-700 group-hover:text-blue-700 mb-1">
+                      <Building2 className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-xs font-semibold text-slate-800">
+                      Admin
+                    </span>
+                    <span className="text-[10px] text-slate-500">Commissioner</span>
+                  </button>
                 </div>
-                <span className="text-xs font-semibold text-slate-800">
-                  Operator
-                </span>
-                <span className="text-[10px] text-slate-500">Roads Dept</span>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => handleDemoLogin("admin")}
-                className="flex flex-col items-center justify-center p-2 sm:p-2.5 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-lg text-center transition-all group cursor-pointer shadow-2xs"
-              >
-                <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-700 group-hover:text-blue-700 mb-1">
-                  <Building2 className="w-3.5 h-3.5" />
+              <div className="relative flex items-center justify-center">
+                <div className="border-t border-slate-200 w-full" />
+                <span className="bg-white px-3 text-[11px] font-medium text-slate-400 uppercase tracking-wider absolute">
+                  Or {isRegisterMode ? "New Citizen Registration" : "Credentials"}
+                </span>
+              </div>
+            </>
+          )}
+
+          {/* Form Area: Forgot Password vs Registration vs Standard Login */}
+          {isForgotMode ? (
+            forgotStep === 2 ? (
+              /* FORGOT PASSWORD - STEP 2: Enter OTP & New Password */
+              <form onSubmit={handleForgotPasswordStep2} className="space-y-3">
+                <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-blue-900 block">
+                        Enter 6-Digit Password Reset OTP
+                      </span>
+                      <span className="text-[10px] text-blue-700 font-mono">
+                        {email}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setForgotStep(1)}
+                      className="text-[11px] text-blue-700 hover:text-blue-900 font-semibold underline cursor-pointer"
+                    >
+                      Change Email
+                    </button>
+                  </div>
+
+                  {/* 6-Digit OTP */}
+                  <div>
+                    <label htmlFor="modal-forgot-otp" className="block text-xs font-semibold text-slate-700 mb-1">
+                      Verification Code
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        id="modal-forgot-otp"
+                        type="text"
+                        maxLength={6}
+                        required
+                        value={forgotOtp}
+                        onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, ''))}
+                        placeholder="123456"
+                        className="w-full pl-9 pr-3 py-2 text-center text-sm tracking-widest font-mono font-bold bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] pt-1">
+                      <div>
+                        {forgotCooldown > 0 ? (
+                          <span className="text-slate-400 font-mono">
+                            Resend code in <strong className="text-blue-700">{forgotCooldown}s</strong>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleForgotPasswordStep1}
+                            disabled={loading}
+                            className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 font-semibold cursor-pointer"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Resend Code</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {forgotDemoOtp && (
+                        <button
+                          type="button"
+                          onClick={() => setForgotOtp(forgotDemoOtp)}
+                          className="px-2 py-0.5 bg-white border border-blue-200 rounded text-blue-700 font-mono font-bold hover:bg-blue-50 transition-colors shadow-2xs cursor-pointer"
+                        >
+                          Auto-Fill {forgotDemoOtp}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <span className="text-xs font-semibold text-slate-800">
-                  Admin
-                </span>
-                <span className="text-[10px] text-slate-500">Commissioner</span>
-              </button>
-            </div>
-          </div>
 
-          <div className="relative flex items-center justify-center">
-            <div className="border-t border-slate-200 w-full" />
-            <span className="bg-white px-3 text-[11px] font-medium text-slate-400 uppercase tracking-wider absolute">
-              Or {isRegisterMode ? "New Citizen Registration" : "Credentials"}
-            </span>
-          </div>
+                {/* New Password */}
+                <div>
+                  <label htmlFor="modal-forgot-new-password" className="block text-xs font-semibold text-slate-700 mb-1">
+                    New Password (min 6 characters)
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      id="modal-forgot-new-password"
+                      type="password"
+                      required
+                      minLength={6}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+                    />
+                  </div>
+                </div>
 
-          {/* Form Area: Step 1 vs Step 2 vs Standard Login as mutually exclusive forms */}
-          {isRegisterMode ? (
+                {/* Confirm New Password */}
+                <div>
+                  <label htmlFor="modal-forgot-confirm-password" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Confirm New Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      id="modal-forgot-confirm-password"
+                      type="password"
+                      required
+                      minLength={6}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 bg-blue-700 hover:bg-blue-800 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {loading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Reset Password</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : (
+              /* FORGOT PASSWORD - STEP 1: Enter Email */
+              <form onSubmit={handleForgotPasswordStep1} className="space-y-3">
+                <div>
+                  <label htmlFor="modal-forgot-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Registered Email Address
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      id="modal-forgot-email"
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors font-mono"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    We will send a 6-digit OTP code to this email to reset your password.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 bg-blue-700 hover:bg-blue-800 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {loading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Send Password Reset OTP</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+            )
+          ) : isRegisterMode ? (
             otpSent ? (
               /* STEP 2: 6-Digit Email OTP Form (Mutually exclusive form, NO password input, ignores autofill extensions) */
               <form
@@ -524,12 +795,24 @@ export const LoginModal = () => {
               </div>
               {/* Password Login */}
               <div>
-                <label
-                  htmlFor="modal-login-password"
-                  className="block text-xs font-semibold text-slate-700 mb-1"
-                >
-                  Password
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label
+                    htmlFor="modal-login-password"
+                    className="block text-xs font-semibold text-slate-700"
+                  >
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsForgotMode(true);
+                      setForgotStep(1);
+                    }}
+                    className="text-xs text-blue-700 hover:text-blue-800 font-semibold cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
@@ -563,9 +846,20 @@ export const LoginModal = () => {
             </form>
           )}
 
-          {/* Toggle between Login and Register */}
+          {/* Toggle between Login, Register, and Forgot */}
           <div className="pt-2 text-center text-xs text-slate-500 border-t border-slate-100">
-            {isRegisterMode ? (
+            {isForgotMode ? (
+              <span>
+                Remembered your password?{" "}
+                <button
+                  type="button"
+                  onClick={resetForgotState}
+                  className="text-blue-700 font-semibold hover:underline cursor-pointer"
+                >
+                  Sign in here
+                </button>
+              </span>
+            ) : isRegisterMode ? (
               <span>
                 Already have an account?{" "}
                 <button
